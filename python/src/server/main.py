@@ -100,6 +100,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# JWT authentication middleware (Task P0-27)
+from .middleware.auth import JWTAuthMiddleware
+app.add_middleware(
+    JWTAuthMiddleware,
+    enforce_auth=(settings.ENVIRONMENT != "development")  # Disable in dev for testing
+)
+
 # Mount Prometheus metrics endpoint
 metrics_app = make_asgi_app()
 app.mount("/metrics", metrics_app)
