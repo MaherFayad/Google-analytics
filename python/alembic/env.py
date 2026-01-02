@@ -13,8 +13,15 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from alembic import context
 
-# Import your models' Base for autogenerate support
-# from src.server.models import Base
+# Import models for autogenerate support
+import sys
+from pathlib import Path
+
+# Add src directory to path
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from src.server.models import User, GA4Credentials, ChatSession, ChatMessage
+from sqlmodel import SQLModel
 
 # Alembic Config object
 config = context.config
@@ -23,9 +30,8 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# Add your model's MetaData object here for 'autogenerate' support
-# target_metadata = Base.metadata
-target_metadata = None  # TODO: Import Base from models
+# Add model's MetaData object for 'autogenerate' support
+target_metadata = SQLModel.metadata
 
 
 def run_migrations_offline() -> None:

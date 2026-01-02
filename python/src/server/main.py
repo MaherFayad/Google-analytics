@@ -54,7 +54,16 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
     logger.info("Starting GA4 Analytics API...")
     
     # Startup logic
-    # TODO: Initialize database connection pool
+    from .database import engine, init_db, close_db
+    
+    # Initialize database (creates tables in dev mode)
+    if settings.ENVIRONMENT == "development":
+        try:
+            await init_db()
+            logger.info("Database initialized")
+        except Exception as e:
+            logger.warning(f"Database initialization skipped: {e}")
+    
     # TODO: Initialize Redis connection
     # TODO: Register agents
     
@@ -64,7 +73,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
     
     # Shutdown logic
     logger.info("Shutting down GA4 Analytics API...")
-    # TODO: Close database connections
+    
+    # Close database connections
+    await close_db()
+    
     # TODO: Close Redis connection
     logger.info("API shutdown complete")
 
