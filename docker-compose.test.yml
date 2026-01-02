@@ -1,0 +1,184 @@
+# Docker Compose configuration for TESTING
+# This file provides a complete testing environment with all services
+# Usage: docker-compose -f docker-compose.test.yml up
+
+version: '3.8'
+
+services:
+  # PostgreSQL with pgvector extension
+  postgres:
+    image: ankane/pgvector:latest
+    container_name: ga4-postgres-test
+    environment:
+      POSTGRES_DB: ga4_analytics
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_HOST_AUTH_METHOD: trust
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_test_data:/var/lib/postgresql/data
+      - ./migrations/init.sql:/docker-entrypoint-initdb.d/01-init.sql
+      - ./migrations/ga4_analytics_schema.sql:/docker-entrypoint-initdb.d/02-schema.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - ga4-test-network
+
+  # Redis for caching and rate limiting
+  redis:
+    image: redis:7-alpine
+    container_name: ga4-redis-test
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_test_data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - ga4-test-network
+
+  # pgBouncer for connection pooling (transaction mode)
+  pgbouncer:
+    image: edoburu/pgbouncer:latest
+    container_name: ga4-pgbouncer-test
+    environment:
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/ga4_analytics
+      POOL_MODE: transaction
+      MAX_CLIENT_CONN: 1000
+      DEFAULT_POOL_SIZE: 25
+      RESERVE_POOL_SIZE: 5
+      MAX_DB_CONNECTIONS: 50
+    ports:
+      - "6432:5432"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - ga4-test-network
+
+  # FastAPI backend (development mode with hot reload)
+  api:
+    build:
+      context: ./python
+      dockerfile: Dockerfile
+    container_name: ga4-api-test
+    environment:
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@pgbouncer:5432/ga4_analytics
+      REDIS_URL: redis://redis:6379
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-sk-test-key}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-test-client-id}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-test-client-secret}
+      SENTRY_DSN: ${SENTRY_DSN:-}
+      ENVIRONMENT: development
+      LOG_LEVEL: DEBUG
+      ENABLE_MOCK_GA4: ${ENABLE_MOCK_GA4:-true}
+      CORS_ORIGINS: http://localhost:3000,http://localhost:3001
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./python/src:/app/src:ro
+      - ./python/tests:/app/tests:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      pgbouncer:
+        condition: service_started
+    command: uvicorn src.server.main:app --host 0.0.0.0 --port 8000 --reload --log-level debug
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:
+      - ga4-test-network
+
+  # Next.js frontend (development mode with hot reload)
+  web:
+    build:
+      context: ./archon-ui-main
+      dockerfile: Dockerfile.dev
+    container_name: ga4-web-test
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8000
+      NEXTAUTH_URL: http://localhost:3000
+      NEXTAUTH_SECRET: ${NEXTAUTH_SECRET:-test-secret-min-32-chars-long-for-jwt}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-test-client-id}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-test-client-secret}
+      NODE_ENV: development
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./archon-ui-main/src:/app/src:ro
+      - ./archon-ui-main/public:/app/public:ro
+      - ./archon-ui-main/app:/app/app:ro
+      - /app/node_modules
+      - /app/.next
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      - ga4-test-network
+
+  # Prometheus for metrics
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: ga4-prometheus-test
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/alert_rules:/etc/prometheus/alert_rules:ro
+      - prometheus_test_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+    networks:
+      - ga4-test-network
+
+  # Grafana for dashboards
+  grafana:
+    image: grafana/grafana:latest
+    container_name: ga4-grafana-test
+    ports:
+      - "3001:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_SECURITY_ADMIN_USER: admin
+      GF_INSTALL_PLUGINS: ""
+    volumes:
+      - ./grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./grafana/datasources:/etc/grafana/provisioning/datasources:ro
+      - grafana_test_data:/var/lib/grafana
+    depends_on:
+      - prometheus
+    networks:
+      - ga4-test-network
+
+volumes:
+  postgres_test_data:
+    driver: local
+  redis_test_data:
+    driver: local
+  prometheus_test_data:
+    driver: local
+  grafana_test_data:
+    driver: local
+
+networks:
+  ga4-test-network:
+    driver: bridge
+    name: ga4-test-network
+
