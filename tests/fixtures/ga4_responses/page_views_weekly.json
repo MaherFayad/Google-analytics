@@ -1,0 +1,79 @@
+{
+  "dimensionHeaders": [
+    {"name": "date"},
+    {"name": "pagePath"},
+    {"name": "deviceCategory"}
+  ],
+  "metricHeaders": [
+    {"name": "sessions", "type": "TYPE_INTEGER"},
+    {"name": "screenPageViews", "type": "TYPE_INTEGER"},
+    {"name": "bounceRate", "type": "TYPE_FLOAT"},
+    {"name": "averageSessionDuration", "type": "TYPE_FLOAT"}
+  ],
+  "rows": [
+    {
+      "dimensionValues": [
+        {"value": "20250101"},
+        {"value": "/"},
+        {"value": "mobile"}
+      ],
+      "metricValues": [
+        {"value": "1100"},
+        {"value": "2420"},
+        {"value": "0.4200"},
+        {"value": "185.50"}
+      ]
+    },
+    {
+      "dimensionValues": [
+        {"value": "20250101"},
+        {"value": "/products"},
+        {"value": "desktop"}
+      ],
+      "metricValues": [
+        {"value": "700"},
+        {"value": "1540"},
+        {"value": "0.3800"},
+        {"value": "245.20"}
+      ]
+    },
+    {
+      "dimensionValues": [
+        {"value": "20250102"},
+        {"value": "/"},
+        {"value": "mobile"}
+      ],
+      "metricValues": [
+        {"value": "1155"},
+        {"value": "2541"},
+        {"value": "0.4100"},
+        {"value": "192.30"}
+      ]
+    },
+    {
+      "dimensionValues": [
+        {"value": "20250102"},
+        {"value": "/pricing"},
+        {"value": "desktop"}
+      ],
+      "metricValues": [
+        {"value": "735"},
+        {"value": "1617"},
+        {"value": "0.3650"},
+        {"value": "256.80"}
+      ]
+    }
+  ],
+  "rowCount": 4,
+  "metadata": {
+    "dataLossFromOtherRow": false,
+    "samplingMetadatas": [],
+    "schemaRestrictionResponse": {
+      "activeMetricRestrictions": []
+    },
+    "currencyCode": "USD",
+    "timeZone": "America/New_York"
+  },
+  "kind": "analyticsData#runReport"
+}
+

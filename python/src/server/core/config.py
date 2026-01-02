@@ -39,6 +39,16 @@ class Settings(BaseSettings):
     GOOGLE_CLIENT_ID: str = Field(description="Google OAuth client ID")
     GOOGLE_CLIENT_SECRET: str = Field(description="Google OAuth client secret")
     
+    # GA4 Configuration (Task P0-10)
+    GA4_MOCK_MODE: bool = Field(
+        default=True,
+        description="Use mock GA4 API for development (Task P0-10)"
+    )
+    GA4_DEFAULT_SCENARIO: str = Field(
+        default="steady_growth",
+        description="Default test scenario for mock GA4 service"
+    )
+    
     # NextAuth
     NEXTAUTH_SECRET: str = Field(description="NextAuth.js secret (min 32 chars)")
     NEXTAUTH_URL: str = Field(default="http://localhost:3000")
