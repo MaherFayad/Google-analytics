@@ -523,3 +523,4 @@ class TestPerformance:
         assert report.total_claims > 0
 
 
+
