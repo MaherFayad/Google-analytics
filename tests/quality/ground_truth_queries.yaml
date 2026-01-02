@@ -1,0 +1,335 @@
+# Ground Truth Test Cases for Semantic Consistency Validation
+# Task P0-11: Semantic Consistency Ground Truth Tests [CRITICAL]
+#
+# These test cases validate that LLM-generated responses accurately
+# reflect raw GA4 metrics to prevent hallucinations.
+
+success_cases:
+  - description: "Simple sessions metric - exact match"
+    llm_response: "You had 1,234 sessions yesterday"
+    raw_metrics:
+      sessions: 1234
+    expected_deviation: 0.0
+    
+  - description: "Multiple metrics - all exact matches"
+    llm_response: |
+      Mobile Analytics Summary:
+      - Sessions: 12,450
+      - Conversions: 234
+      - Bounce Rate: 42.3%
+    raw_metrics:
+      sessions: 12450
+      conversions: 234
+      bounce_rate: 42.3
+    expected_deviation: 0.0
+    
+  - description: "Period comparison - exact values"
+    llm_response: |
+      This Week vs Last Week:
+      - Sessions: 12,450 vs 10,233 (+21.7%)
+      - Conversions: 234 vs 195 (+20.0%)
+    raw_metrics:
+      current_sessions: 12450
+      previous_sessions: 10233
+      current_conversions: 234
+      previous_conversions: 195
+    expected_deviation: 0.0
+    
+  - description: "Weekly summary with aggregation"
+    llm_response: |
+      Weekly Total: 68,456 sessions
+      Daily breakdown:
+      - Monday: 9,876
+      - Tuesday: 10,234
+      - Wednesday: 9,456
+      - Thursday: 10,567
+      - Friday: 11,234
+      - Saturday: 8,945
+      - Sunday: 8,144
+    raw_metrics:
+      total_sessions: 68456
+      mon_sessions: 9876
+      tue_sessions: 10234
+      wed_sessions: 9456
+      thu_sessions: 10567
+      fri_sessions: 11234
+      sat_sessions: 8945
+      sun_sessions: 8144
+    expected_deviation: 0.0
+    
+  - description: "Approximate value within tolerance (1.3% deviation)"
+    llm_response: "You had approximately 1,250 sessions"
+    raw_metrics:
+      sessions: 1234
+    expected_deviation: 1.3
+    tolerance_percent: 5.0
+    
+  - description: "Device breakdown with percentages"
+    llm_response: |
+      Device Breakdown:
+      - Mobile: 12,450 sessions (60%)
+      - Desktop: 8,300 sessions (40%)
+    raw_metrics:
+      mobile_sessions: 12450
+      desktop_sessions: 8300
+    expected_deviation: 0.0
+    
+  - description: "Executive summary with multiple data points"
+    llm_response: |
+      Executive Summary - Mobile Analytics (January 2026)
+      
+      Traffic Performance:
+      Your mobile traffic reached 45,678 sessions this month, representing
+      a 21.7% increase from December's 37,512 sessions.
+      
+      Conversion Metrics:
+      - Total conversions: 1,234
+      - Conversion rate: 2.7%
+      - Revenue: $12,345.67
+      
+      User Engagement:
+      - Bounce rate: 42.3%
+      - Pages per session: 3.2
+      - Avg session duration: 145 seconds
+    raw_metrics:
+      sessions: 45678
+      previous_sessions: 37512
+      conversions: 1234
+      conversion_rate: 2.7
+      revenue: 12345.67
+      bounce_rate: 42.3
+      pages_per_session: 3.2
+      avg_session_duration: 145
+    expected_deviation: 0.0
+    
+  - description: "Zero values (no conversions)"
+    llm_response: "No conversions recorded (0 conversions)"
+    raw_metrics:
+      conversions: 0
+    expected_deviation: 0.0
+    
+  - description: "Very large numbers"
+    llm_response: "Total pageviews: 12,345,678"
+    raw_metrics:
+      pageviews: 12345678
+    expected_deviation: 0.0
+
+
+failure_cases:
+  - description: "Hallucinated higher value (21.6% deviation)"
+    llm_response: "You had 1,500 sessions"
+    raw_metrics:
+      sessions: 1234
+    expected_deviation: 21.6
+    tolerance_percent: 5.0
+    expected_error: "sessions: LLM value 1500 deviates"
+    
+  - description: "Incorrect conversion count (78.6% deviation)"
+    llm_response: "You had 100 conversions"
+    raw_metrics:
+      conversions: 56
+    expected_deviation: 78.6
+    tolerance_percent: 5.0
+    expected_error: "conversions: LLM value 100 deviates"
+    
+  - description: "Wrong aggregation total (9.6% deviation)"
+    llm_response: "Total sessions this week: 75,000"
+    raw_metrics:
+      total_sessions: 68456
+    expected_deviation: 9.6
+    tolerance_percent: 5.0
+    expected_error: "total_sessions: LLM value 75000 deviates"
+    
+  - description: "Inflated bounce rate (18.2% deviation)"
+    llm_response: "Bounce rate: 50%"
+    raw_metrics:
+      bounce_rate: 42.3
+    expected_deviation: 18.2
+    tolerance_percent: 5.0
+    expected_error: "bounce_rate: LLM value 50 deviates"
+    
+  - description: "Mixed correct and incorrect values"
+    llm_response: |
+      Traffic Report:
+      - Sessions: 1,234 (correct)
+      - Conversions: 100 (incorrect - actual is 56)
+    raw_metrics:
+      sessions: 1234
+      conversions: 56
+    expected_deviation: 78.6
+    tolerance_percent: 5.0
+    expected_status: "warning"
+    
+  - description: "Fabricated trend percentage"
+    llm_response: "Traffic increased 50% this week"
+    raw_metrics:
+      current_sessions: 12450
+      previous_sessions: 10233
+      # Actual increase: (12450-10233)/10233 = 21.7%, not 50%
+    expected_deviation: 130.5
+    tolerance_percent: 5.0
+    
+  - description: "Rounded to nearest thousand (19.6% deviation)"
+    llm_response: "Approximately 15,000 sessions"
+    raw_metrics:
+      sessions: 12450
+    expected_deviation: 20.5
+    tolerance_percent: 5.0
+
+
+edge_cases:
+  - description: "No numbers in response"
+    llm_response: "Analytics data is being processed"
+    raw_metrics:
+      sessions: 1234
+    expected_status: "skipped"
+    expected_numbers_checked: 0
+    
+  - description: "Empty metrics dictionary"
+    llm_response: "Sessions: 1,234"
+    raw_metrics: {}
+    expected_warnings: ["Could not match"]
+    
+  - description: "Multiple occurrences of same number"
+    llm_response: "You had 1,234 sessions (that's 1,234 total sessions)"
+    raw_metrics:
+      sessions: 1234
+    expected_deviation: 0.0
+    expected_numbers_matched: 1
+    
+  - description: "Decimal precision"
+    llm_response: "Conversion rate: 3.4567%"
+    raw_metrics:
+      conversion_rate: 3.4567
+    expected_deviation: 0.0
+    
+  - description: "Nested metric values"
+    llm_response: "Sessions: 1,234"
+    raw_metrics:
+      sessions:
+        value: 1234
+        unit: "count"
+    expected_deviation: 0.0
+
+
+adversarial_cases:
+  - description: "LLM adds context not in data"
+    llm_response: "Your 10,000 sessions is below the industry average of 50,000"
+    raw_metrics:
+      sessions: 10000
+    notes: "Should pass validation for sessions count but flag 'industry average' as ungrounded"
+    expected_warnings: ["Could not match '50,000'"]
+    
+  - description: "Device type confusion"
+    llm_response: "Mobile sessions: 15,678"
+    raw_metrics:
+      desktop_sessions: 15678
+      # No mobile_sessions in data
+    notes: "Number matches but metric name is wrong - should fail semantic check"
+    expected_warnings: ["Could not match"]
+    
+  - description: "Time period mismatch"
+    llm_response: "Last week, you had 10,234 sessions"
+    raw_metrics:
+      sessions_nov_2025: 10234
+      # Data is from November, not last week
+    notes: "Number matches but time context is wrong"
+    expected_warnings: ["Could not match"]
+    
+  - description: "Fabricated causal attribution"
+    llm_response: "Traffic dropped 20% because of seasonal factors"
+    raw_metrics:
+      current_sessions: 8000
+      previous_sessions: 10000
+    notes: "Percentage is correct but 'because of seasonal factors' is not in data"
+    expected_numbers_matched: 2
+    
+  - description: "Competitor comparison"
+    llm_response: "Your 10,000 sessions is lower than competitor average of 25,000"
+    raw_metrics:
+      sessions: 10000
+    notes: "Should fail - competitor data not in metrics"
+    expected_warnings: ["Could not match '25,000'"]
+
+
+performance_cases:
+  - description: "Large report with 50 metrics"
+    llm_response: |
+      # Generated programmatically in test
+      Metric 0: 1000
+      Metric 1: 1100
+      Metric 2: 1200
+      # ... up to Metric 49: 5900
+    raw_metrics:
+      # Generated programmatically in test
+      metric_0: 1000
+      metric_1: 1100
+      # ... up to metric_49: 5900
+    expected_numbers_matched: 50
+    performance_threshold_ms: 500
+    notes: "Should complete in <500ms"
+
+
+integration_scenarios:
+  - description: "Full weekly report validation"
+    query: "What were my mobile analytics for last week?"
+    llm_response: |
+      Weekly Mobile Traffic Report (Jan 1-7, 2026):
+      
+      Traffic Overview:
+      - Total sessions: 45,678
+      - Unique users: 32,456
+      - Conversions: 1,234
+      - Revenue: $12,345.67
+      
+      Engagement:
+      - Bounce rate: 42.3%
+      - Pages per session: 3.2
+      - Avg session duration: 145 seconds
+      
+      Compared to previous week:
+      - Sessions: +21.7% (from 37,512)
+      - Conversions: +20.0% (from 1,028)
+    raw_metrics:
+      sessions: 45678
+      users: 32456
+      conversions: 1234
+      revenue: 12345.67
+      bounce_rate: 42.3
+      pages_per_session: 3.2
+      avg_session_duration: 145
+      previous_sessions: 37512
+      previous_conversions: 1028
+    expected_status: "passed"
+    expected_numbers_matched: 9
+    
+  - description: "Device comparison report"
+    query: "Compare mobile vs desktop performance"
+    llm_response: |
+      Device Performance Comparison:
+      
+      Mobile:
+      - Sessions: 12,450 (60%)
+      - Conversions: 156 (1.25%)
+      - Bounce Rate: 45.2%
+      
+      Desktop:
+      - Sessions: 8,300 (40%)
+      - Conversions: 98 (1.18%)
+      - Bounce Rate: 38.7%
+      
+      Total: 20,750 sessions with 254 conversions
+    raw_metrics:
+      mobile_sessions: 12450
+      mobile_conversions: 156
+      mobile_bounce_rate: 45.2
+      mobile_conversion_rate: 1.25
+      desktop_sessions: 8300
+      desktop_conversions: 98
+      desktop_bounce_rate: 38.7
+      desktop_conversion_rate: 1.18
+      total_sessions: 20750
+      total_conversions: 254
+    expected_status: "passed"
+    expected_numbers_matched: 10
+

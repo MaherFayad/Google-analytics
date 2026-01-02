@@ -1,0 +1,246 @@
+###############################################################################
+# Connection Pool Alert Rules
+#
+# Implements Task P0-13: Connection Pool Health Monitoring [HIGH]
+#
+# Alert Rules:
+# 1. Pool utilization > 80% (warning)
+# 2. Pool utilization > 90% (critical)
+# 3. Pool exhaustion (critical)
+# 4. High checkout failures (warning)
+# 5. Overflow connections in use (warning)
+#
+# Integration with AlertManager for routing to:
+# - Slack #alerts channel
+# - PagerDuty for critical alerts
+# - Email for warning alerts
+###############################################################################
+
+groups:
+  - name: connection_pool_health
+    interval: 10s
+    rules:
+      # ==================================================================
+      # WARNING: Pool Utilization > 80%
+      # ==================================================================
+      - alert: ConnectionPoolUtilizationHigh
+        expr: connection_pool_utilization_ratio > 0.80
+        for: 2m
+        labels:
+          severity: warning
+          component: database
+          pool_type: "{{ $labels.pool_type }}"
+        annotations:
+          summary: "High connection pool utilization ({{ $labels.pool_type }})"
+          description: |
+            Connection pool utilization is {{ $value | humanizePercentage }} for {{ $labels.pool_type }} pool.
+            
+            Current Status:
+            - Utilization: {{ $value | humanizePercentage }}
+            - Threshold: 80%
+            
+            Actions:
+            - Monitor pool usage closely
+            - Prepare to scale if trend continues
+            - Review slow queries holding connections
+          
+          runbook_url: "https://docs.internal/runbooks/connection-pool-high-utilization"
+      
+      # ==================================================================
+      # CRITICAL: Pool Utilization > 90%
+      # ==================================================================
+      - alert: ConnectionPoolUtilizationCritical
+        expr: connection_pool_utilization_ratio > 0.90
+        for: 1m
+        labels:
+          severity: critical
+          component: database
+          pool_type: "{{ $labels.pool_type }}"
+          page: "true"  # Trigger PagerDuty
+        annotations:
+          summary: "CRITICAL: Connection pool near exhaustion ({{ $labels.pool_type }})"
+          description: |
+            Connection pool utilization is {{ $value | humanizePercentage }} for {{ $labels.pool_type }} pool.
+            
+            Current Status:
+            - Utilization: {{ $value | humanizePercentage }}
+            - Threshold: 90%
+            - Risk Level: HIGH - Pool exhaustion imminent
+            
+            Immediate Actions Required:
+            1. Increase pool_size or max_overflow
+            2. Review active connections: `SELECT * FROM pg_stat_activity WHERE state = 'active'`
+            3. Kill slow queries if necessary
+            4. Check for connection leaks in application code
+            
+            Query to find slow queries:
+            ```sql
+            SELECT pid, now() - pg_stat_activity.query_start AS duration, query
+            FROM pg_stat_activity
+            WHERE state = 'active' AND now() - pg_stat_activity.query_start > interval '5 seconds'
+            ORDER BY duration DESC;
+            ```
+          
+          dashboard_url: "https://grafana.internal/d/connection-pool-health"
+          runbook_url: "https://docs.internal/runbooks/connection-pool-critical"
+      
+      # ==================================================================
+      # CRITICAL: Pool Exhaustion Events
+      # ==================================================================
+      - alert: ConnectionPoolExhaustionEvents
+        expr: rate(db_pool_exhaustion_total{severity="exhausted"}[5m]) > 0
+        for: 1m
+        labels:
+          severity: critical
+          component: database
+          pool_type: "{{ $labels.pool_type }}"
+          page: "true"  # Trigger PagerDuty
+        annotations:
+          summary: "Connection pool exhaustion events detected ({{ $labels.pool_type }})"
+          description: |
+            Pool exhaustion events are occurring at {{ $value | humanize }} events/sec for {{ $labels.pool_type }} pool.
+            
+            Impact:
+            - Requests are being rejected due to no available connections
+            - Users are experiencing 503 Service Unavailable errors
+            - System availability is degraded
+            
+            Immediate Actions:
+            1. Scale pool immediately: Increase pool_size and max_overflow
+            2. Review application logs for timeout errors
+            3. Check pgBouncer stats: `SHOW POOLS` on appropriate port
+            4. Verify PostgreSQL connection limits not reached
+            
+            pgBouncer Stats Commands:
+            ```bash
+            # For transactional pool (port 6432)
+            psql -h localhost -p 6432 -U postgres pgbouncer -c "SHOW POOLS"
+            
+            # For session pool (port 6433)
+            psql -h localhost -p 6433 -U postgres pgbouncer -c "SHOW POOLS"
+            ```
+          
+          dashboard_url: "https://grafana.internal/d/connection-pool-health"
+          runbook_url: "https://docs.internal/runbooks/connection-pool-exhaustion"
+      
+      # ==================================================================
+      # WARNING: Checkout Failures
+      # ==================================================================
+      - alert: ConnectionPoolCheckoutFailures
+        expr: rate(db_pool_checkout_failures_total[5m]) > 0.1
+        for: 2m
+        labels:
+          severity: warning
+          component: database
+          pool_type: "{{ $labels.pool_type }}"
+        annotations:
+          summary: "Connection checkout failures detected ({{ $labels.pool_type }})"
+          description: |
+            Connection checkout failures are occurring at {{ $value | humanize }} failures/sec for {{ $labels.pool_type }} pool.
+            
+            Common Causes:
+            - Pool timeout: Clients waiting too long for connection
+            - Pool exhaustion: No connections available
+            - Network issues: Cannot reach pgBouncer/PostgreSQL
+            
+            Actions:
+            - Check pool utilization metrics
+            - Review checkout failure reasons: {{ $labels.reason }}
+            - Increase pool_timeout if failures are due to timeout
+            - Increase pool_size if pool is consistently full
+          
+          runbook_url: "https://docs.internal/runbooks/connection-checkout-failures"
+      
+      # ==================================================================
+      # WARNING: Overflow Connections in Use
+      # ==================================================================
+      - alert: ConnectionPoolUsingOverflow
+        expr: connection_pool_overflow_connections > 0
+        for: 5m
+        labels:
+          severity: warning
+          component: database
+          pool_type: "{{ $labels.pool_type }}"
+        annotations:
+          summary: "Connection pool using overflow connections ({{ $labels.pool_type }})"
+          description: |
+            {{ $labels.pool_type }} pool is using {{ $value }} overflow connections.
+            
+            Analysis:
+            - Overflow connections indicate pool_size is too small for normal load
+            - Sustained overflow usage suggests need to increase base pool_size
+            - Current pool_size may be under-provisioned
+            
+            Recommendations:
+            - Consider increasing pool_size to match typical load
+            - Current pool_size should be increased by at least {{ $value }} connections
+            - Monitor pool utilization after increasing pool_size
+            
+            Configuration Update:
+            ```python
+            # In database.py
+            engine_transactional = create_async_engine(
+                pool_size=<current_pool_size + overflow_average>,  # Increase this
+                max_overflow=<keep_same>,
+            )
+            ```
+          
+          runbook_url: "https://docs.internal/runbooks/connection-pool-overflow"
+      
+      # ==================================================================
+      # WARNING: Slow Checkout Time
+      # ==================================================================
+      - alert: ConnectionPoolSlowCheckout
+        expr: histogram_quantile(0.95, rate(db_pool_checkout_duration_seconds_bucket[5m])) > 1.0
+        for: 3m
+        labels:
+          severity: warning
+          component: database
+          pool_type: "{{ $labels.pool_type }}"
+        annotations:
+          summary: "Slow connection checkout time ({{ $labels.pool_type }})"
+          description: |
+            95th percentile checkout time is {{ $value | humanizeDuration }} for {{ $labels.pool_type }} pool.
+            
+            Expected: < 100ms
+            Current: {{ $value | humanizeDuration }}
+            
+            Possible Causes:
+            - Pool under pressure (high utilization)
+            - Network latency to pgBouncer/PostgreSQL
+            - Connection validation overhead (pool_pre_ping)
+            
+            Actions:
+            - Check pool utilization metrics
+            - Verify network connectivity to database
+            - Consider increasing pool_size if consistently slow
+          
+          runbook_url: "https://docs.internal/runbooks/connection-pool-slow-checkout"
+      
+      # ==================================================================
+      # INFO: Pool Recovery
+      # ==================================================================
+      - alert: ConnectionPoolRecovered
+        expr: rate(db_pool_recovery_total[5m]) > 0
+        for: 1m
+        labels:
+          severity: info
+          component: database
+          pool_type: "{{ $labels.pool_type }}"
+        annotations:
+          summary: "Connection pool recovered ({{ $labels.pool_type }})"
+          description: |
+            {{ $labels.pool_type }} pool has recovered from critical state.
+            
+            Recovery Event:
+            - Pool returned to healthy state
+            - Utilization dropped below critical threshold
+            - Normal operations restored
+            
+            Follow-up Actions:
+            - Review what caused the spike
+            - Verify alerts were sent and acknowledged
+            - Consider preventive measures if spike was predictable
+          
+          dashboard_url: "https://grafana.internal/d/connection-pool-health"
+
