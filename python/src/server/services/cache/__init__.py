@@ -1,20 +1,5 @@
-"""
-Redis caching services.
+"""Cache services for performance optimization."""
 
-Implements Task 4.3: Redis Caching Layer
-"""
+from .progressive_cache import ProgressiveCacheService, CacheEntry, CacheStats
 
-from .response_cache import (
-    cache_response,
-    ResponseCache,
-    get_cache_key,
-    invalidate_cache,
-)
-
-__all__ = [
-    "cache_response",
-    "ResponseCache",
-    "get_cache_key",
-    "invalidate_cache",
-]
-
+__all__ = ["ProgressiveCacheService", "CacheEntry", "CacheStats"]

@@ -3,16 +3,19 @@ OrchestratorAgent - Coordinates multi-agent workflow.
 
 Implements Task 13: Agent Orchestration Layer
 Implements Task P0-18: Agent Handoff Logic
+Implements Task P0-12: Async Agent Execution with Streaming
 
 Responsibilities:
 - Coordinate DataFetcher → Embedding → RAG → Reporting pipeline
 - Handle parallel execution where possible
 - Implement circuit breakers and error recovery
 - Stream progress updates via SSE
+- Progressive cache-first strategy for <500ms time-to-first-token
 """
 
+import asyncio
 import logging
-from typing import Any, AsyncGenerator, Dict, Optional
+from typing import Any, AsyncGenerator, Dict, List, Optional
 
 from .base_agent import BaseAgent
 from .data_fetcher_agent import DataFetcherAgent
@@ -56,6 +59,7 @@ class OrchestratorAgent(BaseAgent[ReportResult]):
         openai_api_key: str,
         redis_client: Optional[Any] = None,
         db_session: Optional[Any] = None,
+        cache_service: Optional[Any] = None,
     ):
         """
         Initialize orchestrator with sub-agents.
@@ -64,6 +68,7 @@ class OrchestratorAgent(BaseAgent[ReportResult]):
             openai_api_key: OpenAI API key
             redis_client: Redis client for caching
             db_session: Database session for RAG
+            cache_service: Progressive cache service (Task P0-12)
         """
         super().__init__(
             name="orchestrator",
@@ -77,6 +82,9 @@ class OrchestratorAgent(BaseAgent[ReportResult]):
         self.embedding_agent = EmbeddingAgent(openai_api_key=openai_api_key)
         self.rag_agent = RagAgent(db_session=db_session)
         self.reporting_agent = ReportingAgent(openai_api_key=openai_api_key)
+        
+        # Progressive cache for <500ms time-to-first-token (Task P0-12)
+        self.cache_service = cache_service
         
         logger.info("Orchestrator initialized with 4 agents")
     
@@ -208,6 +216,12 @@ class OrchestratorAgent(BaseAgent[ReportResult]):
         """
         Execute pipeline with progress streaming (Task P0-12).
         
+        Implements cache-first strategy for <500ms time-to-first-token:
+        - Phase 1: Cache check (0-50ms) - yield cached result immediately if available
+        - Phase 2: Async agents (100-300ms) - start agents in parallel
+        - Phase 3: Progressive results (500-1000ms) - stream status updates
+        - Phase 4: Cache result (background) - cache for future requests
+        
         Yields progress updates and final result via SSE.
         
         Args:
@@ -224,28 +238,94 @@ class OrchestratorAgent(BaseAgent[ReportResult]):
             Final result: {"type": "result", "payload": ReportResult}
         """
         try:
-            # Phase 1: Fetch data
-            yield {"type": "status", "message": "Fetching GA4 data..."}
-            data_result = await self.data_fetcher.execute(
-                tenant_id=tenant_id,
-                user_id=user_id,
-                property_id=property_id,
-                access_token=access_token,
-                dimensions=dimensions or ["date"],
-                metrics=metrics or ["sessions", "conversions"],
+            # PHASE 1: Cache check (Target: <50ms)
+            if self.cache_service:
+                cached_entry = await self.cache_service.get_cached_result(
+                    query=query,
+                    tenant_id=tenant_id,
+                    property_id=property_id,
+                )
+                
+                if cached_entry:
+                    # INSTANT RESPONSE - Yield cached result (0-50ms)
+                    logger.info(
+                        f"Cache hit from {cached_entry.source} "
+                        f"(cached_at: {cached_entry.cached_at})"
+                    )
+                    
+                    yield {
+                        "type": "status",
+                        "message": f"Using cached result ({cached_entry.source})"
+                    }
+                    
+                    # Yield cached result immediately
+                    yield {
+                        "type": "result",
+                        "payload": cached_entry.result,
+                        "cached": True,
+                        "cache_source": cached_entry.source,
+                    }
+                    
+                    return  # Early return - <500ms achieved!
+            
+            # PHASE 2: Cache miss - Start async pipeline
+            yield {"type": "status", "message": "Fetching fresh data..."}
+            
+            # OPTIMIZATION: Run embedding generation in parallel with data fetch
+            # (Task P0-18: Parallel execution where possible)
+            logger.info("Starting parallel execution: data fetch + embedding")
+            
+            data_task = asyncio.create_task(
+                self.data_fetcher.execute(
+                    tenant_id=tenant_id,
+                    user_id=user_id,
+                    property_id=property_id,
+                    access_token=access_token,
+                    dimensions=dimensions or ["date"],
+                    metrics=metrics or ["sessions", "conversions"],
+                )
             )
+            
+            embedding_task = asyncio.create_task(
+                self.embedding_agent.execute(
+                    texts=[query],
+                    tenant_id=tenant_id,
+                )
+            )
+            
+            # Wait for both to complete (parallel execution)
+            data_result, embedding_result = await asyncio.gather(
+                data_task,
+                embedding_task,
+                return_exceptions=True,
+            )
+            
+            # Handle exceptions from parallel execution
+            if isinstance(data_result, Exception):
+                logger.error(f"Data fetch failed: {data_result}")
+                data_result = DataFetchResult(
+                    status="failed",
+                    data={},
+                    cached=False,
+                    tenant_id=tenant_id,
+                    timestamp=None,
+                )
+            
+            if isinstance(embedding_result, Exception):
+                logger.warning(f"Embedding generation failed: {embedding_result}")
+                embedding_result = EmbeddingResult(
+                    embeddings=[],
+                    quality_score=0.0,
+                    validation_errors=[str(embedding_result)],
+                    dimension=0,
+                    model="",
+                    tenant_id=tenant_id,
+                )
             
             if data_result.cached:
-                yield {"type": "status", "message": "Using cached data (faster)"}
+                yield {"type": "status", "message": "Using cached GA4 data"}
             
-            # Phase 2: Generate embedding
-            yield {"type": "status", "message": "Analyzing query..."}
-            embedding_result = await self.embedding_agent.execute(
-                texts=[query],
-                tenant_id=tenant_id,
-            )
-            
-            # Phase 3: Retrieve context
+            # PHASE 3: Retrieve historical context
             if embedding_result.embeddings:
                 yield {"type": "status", "message": "Finding relevant patterns..."}
                 retrieval_result = await self.rag_agent.execute(
@@ -262,7 +342,7 @@ class OrchestratorAgent(BaseAgent[ReportResult]):
                     match_count=0,
                 )
             
-            # Phase 4: Generate report
+            # PHASE 4: Generate report
             yield {"type": "status", "message": "Generating insights..."}
             report_result = await self.reporting_agent.execute(
                 query=query,
@@ -272,10 +352,22 @@ class OrchestratorAgent(BaseAgent[ReportResult]):
                 tenant_id=tenant_id,
             )
             
+            # Cache the result for future requests (background task)
+            if self.cache_service:
+                asyncio.create_task(
+                    self._cache_result_background(
+                        query=query,
+                        tenant_id=tenant_id,
+                        property_id=property_id,
+                        result=report_result.model_dump(),
+                    )
+                )
+            
             # Yield final result
             yield {
                 "type": "result",
-                "payload": report_result.model_dump()
+                "payload": report_result.model_dump(),
+                "cached": False,
             }
             
         except Exception as e:
@@ -284,5 +376,25 @@ class OrchestratorAgent(BaseAgent[ReportResult]):
                 "type": "error",
                 "message": f"Pipeline failed: {str(e)}"
             }
+    
+    async def _cache_result_background(
+        self,
+        query: str,
+        tenant_id: str,
+        property_id: str,
+        result: Dict[str, Any],
+    ) -> None:
+        """Cache result in background (non-blocking)."""
+        try:
+            if self.cache_service:
+                await self.cache_service.set_cached_result(
+                    query=query,
+                    tenant_id=tenant_id,
+                    property_id=property_id,
+                    result=result,
+                )
+                logger.debug(f"Cached result for query: {query[:50]}...")
+        except Exception as e:
+            logger.error(f"Failed to cache result: {e}")
 
 

@@ -5,6 +5,7 @@ This module defines typed contracts for agent-to-agent communication,
 ensuring type safety and runtime validation across the agent pipeline.
 
 Implements Task P0-22: Agent Result Schema Registry & Validation
+Implements Task P0-21: Chart Data Schema Specification & Validation
 """
 
 from typing import Type, Dict
@@ -17,21 +18,40 @@ from .results import (
     ReportResult,
     AgentStatus,
     SourceCitation,
+)
+
+# Import enhanced chart schemas (Task P0-21)
+from .charts import (
     ChartConfig,
-    MetricCard,
+    LineChartConfig,
+    BarChartConfig,
+    PieChartConfig,
+    AreaChartConfig,
     ChartDataPoint,
+    PieChartDataPoint,
+    MetricCard,
+    validate_chart_data,
 )
 
 __all__ = [
+    # Agent result schemas
     "DataFetchResult",
     "EmbeddingResult",
     "RetrievalResult",
     "ReportResult",
     "AgentStatus",
     "SourceCitation",
+    # Chart schemas (Task P0-21)
     "ChartConfig",
-    "MetricCard",
+    "LineChartConfig",
+    "BarChartConfig",
+    "PieChartConfig",
+    "AreaChartConfig",
     "ChartDataPoint",
+    "PieChartDataPoint",
+    "MetricCard",
+    "validate_chart_data",
+    # Schema registry
     "AGENT_SCHEMA_REGISTRY",
     "get_schema_for_agent",
 ]

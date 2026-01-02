@@ -27,6 +27,7 @@ from ...database import get_session
 from ...middleware.auth import get_current_user_id
 from ...middleware.tenant import get_current_tenant_id, get_tenant_role
 from ...services.auth import AuthService
+from ...services.cache import ProgressiveCacheService
 from ...agents.orchestrator_agent import OrchestratorAgent
 from ...core.config import settings
 from ...core.connection_manager import get_connection_manager
@@ -174,11 +175,18 @@ async def stream_analytics_query(
         # TODO: Get user's default property from database
         property_id = "123456789"  # Placeholder
     
-    # Create orchestrator
+    # Initialize progressive cache service (Task P0-12)
+    cache_service = ProgressiveCacheService(
+        redis_client=None,  # TODO: Inject Redis client from app state
+        db_session=session,
+    )
+    
+    # Create orchestrator with cache-first strategy
     orchestrator = OrchestratorAgent(
         openai_api_key=settings.OPENAI_API_KEY,
         redis_client=None,  # TODO: Inject Redis client
         db_session=session,
+        cache_service=cache_service,  # Enable <500ms time-to-first-token (Task P0-12)
     )
     
     # Generate unique connection ID (Task P0-20)

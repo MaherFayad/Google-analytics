@@ -3,11 +3,18 @@ Typed result contracts for agent-to-agent communication.
 
 These Pydantic V2 models define the data contracts between agents,
 enabling compile-time type checking and runtime validation.
+
+Implements Task P0-22: Agent Result Schema Registry & Validation
+
+Note: Chart schemas moved to charts.py (Task P0-21) for better organization.
 """
 
 from datetime import datetime
 from typing import Any, Dict, List, Literal, Optional
 from pydantic import BaseModel, Field, field_validator
+
+# Import chart schemas from dedicated module (Task P0-21)
+from .charts import ChartConfig, ChartDataPoint, MetricCard
 
 
 class AgentStatus(BaseModel):
@@ -164,48 +171,15 @@ class RetrievalResult(BaseModel):
         return v
 
 
-class ChartDataPoint(BaseModel):
-    """Single data point for chart visualization."""
-    
-    x: str | float = Field(description="X-axis value (date or category)")
-    y: float = Field(description="Y-axis value (metric)")
-
-
-class ChartConfig(BaseModel):
-    """Chart configuration for frontend rendering."""
-    
-    type: Literal["line", "bar", "pie", "area"] = Field(
-        description="Chart type for Recharts"
-    )
-    title: str
-    x_label: str
-    y_label: str
-    data: List[ChartDataPoint]
-    x_key: str = "x"
-    y_key: str = "y"
-
-
-class MetricCard(BaseModel):
-    """Metric card for dashboard display."""
-    
-    label: str = Field(description="Metric name (e.g., 'Sessions')")
-    value: str = Field(description="Formatted metric value (e.g., '12,450')")
-    change: Optional[str] = Field(
-        default=None,
-        description="Period-over-period change (e.g., '+21.7%')"
-    )
-    trend: Optional[Literal["up", "down", "neutral"]] = None
-
-
 class ReportResult(BaseModel):
     """Result from ReportingAgent - structured report generation."""
     
     answer: str = Field(
         description="Natural language answer to user query"
     )
-    charts: List[ChartConfig] = Field(
+    charts: List[Any] = Field(
         default_factory=list,
-        description="Chart configurations for visualization"
+        description="Chart configurations for visualization (LineChartConfig, BarChartConfig, etc.)"
     )
     metrics: List[MetricCard] = Field(
         default_factory=list,
