@@ -215,10 +215,12 @@ async def liveness_check():
 # Include API routers
 from .api.v1 import auth, tenants, analytics
 from .api.v1.admin import tenant_management_router, transformation_diff_router
+from .api.v1 import unified_analytics
 
 app.include_router(auth.router, prefix="/api/v1", tags=["authentication"])
 app.include_router(tenants.router, prefix="/api/v1", tags=["tenants"])
 app.include_router(analytics.router, prefix="/api/v1", tags=["analytics"])
+app.include_router(unified_analytics.router, prefix="/api/v1", tags=["analytics"])
 
 # Admin routers
 app.include_router(tenant_management_router, prefix="/api/v1", tags=["admin"])
