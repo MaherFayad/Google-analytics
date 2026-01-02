@@ -5,7 +5,7 @@ const nextConfig = {
   
   // Configure image optimization
   images: {
-    domains: ['localhost'],
+    domains: ['localhost', 'lh3.googleusercontent.com'],
     unoptimized: process.env.NODE_ENV === 'development',
   },
   
@@ -17,9 +17,14 @@ const nextConfig = {
     NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000',
   },
   
-  // Webpack configuration
-  webpack: (config, { isServer }) => {
-    // Add any custom webpack config here
+  // Webpack configuration for hot reload in Docker
+  webpack: (config, { dev, isServer }) => {
+    if (dev && !isServer) {
+      config.watchOptions = {
+        poll: 1000,
+        aggregateTimeout: 300,
+      };
+    }
     return config;
   },
   

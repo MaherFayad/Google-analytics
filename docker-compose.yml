@@ -111,24 +111,29 @@ services:
   web:
     build:
       context: ./archon-ui-main
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.dev
     container_name: ga4-web
     environment:
+      NEXT_PUBLIC_API_BASE_URL: http://localhost:8000/api/v1
       NEXT_PUBLIC_API_URL: http://localhost:8000
       NEXTAUTH_URL: http://localhost:3000
-      NEXTAUTH_SECRET: ${NEXTAUTH_SECRET}
-      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
-      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET}
+      NEXTAUTH_SECRET: ${NEXTAUTH_SECRET:-test-secret-for-development-only}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      NODE_ENV: development
+      WATCHPACK_POLLING: "true"
     ports:
       - "3000:3000"
     volumes:
-      - ./archon-ui-main/src:/app/src
-      - ./archon-ui-main/public:/app/public
+      - ./archon-ui-main:/app
+      - /app/node_modules
+      - /app/.next
     depends_on:
       - api
-    command: npm run dev
     networks:
       - ga4-network
+    stdin_open: true
+    tty: true
 
   # Prometheus for metrics
   prometheus:

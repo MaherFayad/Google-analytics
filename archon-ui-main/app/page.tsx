@@ -62,13 +62,13 @@ export default function HomePage() {
               href="/auth/signin"
               className="px-8 py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg shadow-md transition-colors"
             >
-              Sign In
+              Get Started
             </Link>
             <Link
-              href="/analytics"
+              href="/dashboard"
               className="px-8 py-3 bg-gray-200 hover:bg-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-900 dark:text-white font-semibold rounded-lg shadow-md transition-colors"
             >
-              View Analytics
+              Open Dashboard
             </Link>
           </div>
 
