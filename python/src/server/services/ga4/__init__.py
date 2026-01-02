@@ -11,11 +11,25 @@ This package contains services for interacting with Google Analytics 4 API:
 
 from .mock_service import GA4MockService, get_ga4_client
 from .data_fetcher import GA4DataFetcher, GA4FetchError
+from .ga4_client import (
+    GA4Client,
+    GA4Credentials,
+    GA4ReportRequest,
+    GA4ReportResponse,
+    GA4ReportRow,
+    create_ga4_client,
+)
 
 __all__ = [
     "GA4MockService",
     "get_ga4_client",
     "GA4DataFetcher",
     "GA4FetchError",
+    "GA4Client",
+    "GA4Credentials",
+    "GA4ReportRequest",
+    "GA4ReportResponse",
+    "GA4ReportRow",
+    "create_ga4_client",
 ]
 
