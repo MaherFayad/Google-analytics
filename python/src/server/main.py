@@ -102,9 +102,17 @@ app.add_middleware(
 
 # JWT authentication middleware (Task P0-27)
 from .middleware.auth import JWTAuthMiddleware
+from .middleware.tenant import TenantIsolationMiddleware
+
 app.add_middleware(
     JWTAuthMiddleware,
     enforce_auth=(settings.ENVIRONMENT != "development")  # Disable in dev for testing
+)
+
+# Tenant isolation middleware (Task P0-2)
+app.add_middleware(
+    TenantIsolationMiddleware,
+    enforce_tenant=(settings.ENVIRONMENT != "development")
 )
 
 # Mount Prometheus metrics endpoint
@@ -168,8 +176,9 @@ async def liveness_check():
 
 
 # Include API routers
-from .api.v1 import auth
+from .api.v1 import auth, tenants
 app.include_router(auth.router, prefix="/api/v1", tags=["authentication"])
+app.include_router(tenants.router, prefix="/api/v1", tags=["tenants"])
 
 # TODO: Import additional routers
 # from .api.v1 import analytics, reports
