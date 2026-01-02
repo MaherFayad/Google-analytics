@@ -12,3 +12,9 @@ export { ConfidenceBadge } from './ConfidenceBadge';
 export { ConnectionStatus } from './ConnectionStatus';
 export { QueueStatusBanner } from './QueueStatusBanner';
 
+// Task P0-8: Report Export & Power User Features
+export { ReportToolbar } from './ReportToolbar';
+export type { ReportToolbarProps } from './ReportToolbar';
+export { ComparisonChart, transformToComparisonData } from './ComparisonChart';
+export type { ComparisonChartProps, ComparisonDataPoint } from './ComparisonChart';
+
