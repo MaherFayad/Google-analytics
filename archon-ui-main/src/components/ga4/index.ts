@@ -29,3 +29,7 @@ export { GA4ConnectionCard } from './GA4ConnectionCard';
 export { AccessibleChartRenderer } from './AccessibleChartRenderer';
 export type { AccessibleChartRendererProps } from './AccessibleChartRenderer';
 
+// Task 6.1: History Sidebar & Navigation
+export { HistorySidebar } from './HistorySidebar';
+export type { HistorySidebarProps } from './HistorySidebar';
+
