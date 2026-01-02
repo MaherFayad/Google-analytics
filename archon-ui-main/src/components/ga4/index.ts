@@ -18,3 +18,7 @@ export type { ReportToolbarProps } from './ReportToolbar';
 export { ComparisonChart, transformToComparisonData } from './ComparisonChart';
 export type { ComparisonChartProps, ComparisonDataPoint } from './ComparisonChart';
 
+// Task 5.3: Chat Interface & Stream Hook
+export { ChatInterface } from './ChatInterface';
+export type { ChatInterfaceProps } from './ChatInterface';
+
