@@ -18,6 +18,11 @@ from .citation_validator import (
     CitationValidationReport,
     CitationMismatchError,
 )
+from .context_grounding_checker import (
+    ContextGroundingChecker,
+    GroundingReport,
+    GroundingStatus,
+)
 
 __all__ = [
     "GroundTruthValidator",
@@ -28,5 +33,8 @@ __all__ = [
     "CitationValidator",
     "CitationValidationReport",
     "CitationMismatchError",
+    "ContextGroundingChecker",
+    "GroundingReport",
+    "GroundingStatus",
 ]
 
