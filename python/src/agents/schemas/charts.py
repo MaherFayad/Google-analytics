@@ -466,3 +466,4 @@ def validate_chart_data(chart_config: dict) -> ChartConfig:
 
 
 
+

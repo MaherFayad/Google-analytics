@@ -3,11 +3,6 @@ const nextConfig = {
   // Enable standalone output for Docker
   output: 'standalone',
   
-  // Disable telemetry in production
-  telemetry: {
-    enabled: false,
-  },
-  
   // Configure image optimization
   images: {
     domains: ['localhost'],
@@ -26,12 +21,6 @@ const nextConfig = {
   webpack: (config, { isServer }) => {
     // Add any custom webpack config here
     return config;
-  },
-  
-  // Experimental features
-  experimental: {
-    // Enable server actions if needed
-    serverActions: true,
   },
   
   // Configure redirects

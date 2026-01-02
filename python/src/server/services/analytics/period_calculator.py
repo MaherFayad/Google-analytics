@@ -319,3 +319,4 @@ class PeriodCalculator:
             label=first_of_prev_month.strftime("%B %Y")
         )
 
+
