@@ -86,58 +86,119 @@ class RagAgent(BaseAgent[RetrievalResult]):
         min_confidence = min_confidence or self.CONFIDENCE_THRESHOLD
         
         try:
-            # TODO: Implement actual pgvector search when ga4_embeddings table exists (Task 7.3)
-            # For now, return mock results for testing
-            
             logger.info(
                 f"RAG search: tenant={tenant_id}, matches={match_count}, threshold={min_confidence}"
             )
             
-            # Mock results for testing
-            # In production, this would query:
-            # SELECT content, similarity_score, source_metric_id, metadata
-            # FROM ga4_embeddings
-            # WHERE tenant_id = :tenant_id
-            # ORDER BY embedding <=> :query_embedding
-            # LIMIT :match_count
-            # HAVING similarity_score >= :min_confidence
+            # Task P0-42: Source Citation Tracking Implementation
+            # Join ga4_embeddings with ga4_metrics_raw to get full provenance
             
-            documents = [
-                "Mobile conversions increased 21.7% last week (Jan 1-7, 2025)",
-                "Desktop sessions decreased 5.2% over the same period",
-                "Bounce rate on mobile improved from 45% to 42%",
-            ]
-            
-            citations = [
-                SourceCitation(
-                    metric_id=1,
-                    property_id="123456789",
-                    metric_date="2025-01-01",
-                    raw_json={"sessions": 1234, "conversions": 56},
-                    similarity_score=0.92,
-                ),
-                SourceCitation(
-                    metric_id=2,
-                    property_id="123456789",
-                    metric_date="2025-01-02",
-                    raw_json={"sessions": 1456, "conversions": 62},
-                    similarity_score=0.87,
-                ),
-                SourceCitation(
-                    metric_id=3,
-                    property_id="123456789",
-                    metric_date="2025-01-03",
-                    raw_json={"bounce_rate": 0.42},
-                    similarity_score=0.81,
-                ),
-            ]
-            
-            # Calculate average confidence
-            avg_confidence = sum(c.similarity_score for c in citations) / len(citations)
-            
-            logger.info(
-                f"RAG retrieved {len(documents)} documents (confidence: {avg_confidence:.2f})"
-            )
+            if self.db_session:
+                # Production pgvector query with source citations
+                query_sql = text("""
+                    WITH ranked_results AS (
+                        SELECT 
+                            e.id AS embedding_id,
+                            e.content AS embedding_content,
+                            e.embedding <=> CAST(:query_embedding AS vector) AS distance,
+                            1 - (e.embedding <=> CAST(:query_embedding AS vector)) AS similarity_score,
+                            e.source_metric_id,
+                            e.source_metadata,
+                            e.temporal_metadata,
+                            e.transformation_version,
+                            -- Join with source metrics for full provenance
+                            m.id AS metric_id,
+                            m.property_id,
+                            m.metric_date,
+                            m.event_name,
+                            m.dimension_context AS metric_dimensions,
+                            m.metric_values,
+                            m.descriptive_summary
+                        FROM ga4_embeddings e
+                        LEFT JOIN ga4_metrics_raw m ON e.source_metric_id = m.id
+                        WHERE e.tenant_id = :tenant_id::uuid
+                        AND e.embedding IS NOT NULL
+                        ORDER BY e.embedding <=> CAST(:query_embedding AS vector)
+                        LIMIT :match_count
+                    )
+                    SELECT * FROM ranked_results
+                    WHERE similarity_score >= :min_confidence
+                """)
+                
+                result = await self.db_session.execute(
+                    query_sql,
+                    {
+                        "query_embedding": str(query_embedding),
+                        "tenant_id": tenant_id,
+                        "match_count": match_count * 2,  # Fetch extra, filter by confidence
+                        "min_confidence": min_confidence,
+                    }
+                )
+                
+                rows = result.fetchall()
+                
+                documents = []
+                citations = []
+                
+                for row in rows:
+                    documents.append(row.embedding_content)
+                    
+                    # Create source citation
+                    citation = SourceCitation(
+                        metric_id=row.metric_id or 0,
+                        property_id=row.property_id or "unknown",
+                        metric_date=row.metric_date.isoformat() if row.metric_date else "unknown",
+                        raw_json=row.metric_values or {},
+                        similarity_score=row.similarity_score,
+                    )
+                    citations.append(citation)
+                
+                # Calculate average confidence
+                avg_confidence = (
+                    sum(c.similarity_score for c in citations) / len(citations)
+                    if citations else 0.0
+                )
+                
+                logger.info(
+                    f"RAG retrieved {len(documents)} documents from DB "
+                    f"(confidence: {avg_confidence:.2f})"
+                )
+                
+            else:
+                # Mock results for testing (when db_session not available)
+                logger.warning("No DB session, using mock RAG results")
+                
+                documents = [
+                    "Mobile conversions increased 21.7% last week (Jan 1-7, 2025)",
+                    "Desktop sessions decreased 5.2% over the same period",
+                    "Bounce rate on mobile improved from 45% to 42%",
+                ]
+                
+                citations = [
+                    SourceCitation(
+                        metric_id=1,
+                        property_id="123456789",
+                        metric_date="2025-01-01",
+                        raw_json={"sessions": 1234, "conversions": 56},
+                        similarity_score=0.92,
+                    ),
+                    SourceCitation(
+                        metric_id=2,
+                        property_id="123456789",
+                        metric_date="2025-01-02",
+                        raw_json={"sessions": 1456, "conversions": 62},
+                        similarity_score=0.87,
+                    ),
+                    SourceCitation(
+                        metric_id=3,
+                        property_id="123456789",
+                        metric_date="2025-01-03",
+                        raw_json={"bounce_rate": 0.42},
+                        similarity_score=0.81,
+                    ),
+                ]
+                
+                avg_confidence = sum(c.similarity_score for c in citations) / len(citations)
             
             return RetrievalResult(
                 documents=documents,

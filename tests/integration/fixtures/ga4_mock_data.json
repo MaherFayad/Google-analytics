@@ -1,0 +1,116 @@
+{
+  "dimensionHeaders": [
+    {"name": "date"},
+    {"name": "deviceCategory"},
+    {"name": "pagePath"}
+  ],
+  "metricHeaders": [
+    {"name": "sessions", "type": "TYPE_INTEGER"},
+    {"name": "conversions", "type": "TYPE_INTEGER"},
+    {"name": "bounceRate", "type": "TYPE_FLOAT"}
+  ],
+  "rows": [
+    {
+      "dimensionValues": [
+        {"value": "2026-01-01"},
+        {"value": "mobile"},
+        {"value": "/home"}
+      ],
+      "metricValues": [
+        {"value": "2145"},
+        {"value": "42"},
+        {"value": "0.423"}
+      ]
+    },
+    {
+      "dimensionValues": [
+        {"value": "2026-01-01"},
+        {"value": "desktop"},
+        {"value": "/home"}
+      ],
+      "metricValues": [
+        {"value": "1834"},
+        {"value": "38"},
+        {"value": "0.385"}
+      ]
+    },
+    {
+      "dimensionValues": [
+        {"value": "2026-01-02"},
+        {"value": "mobile"},
+        {"value": "/home"}
+      ],
+      "metricValues": [
+        {"value": "2234"},
+        {"value": "45"},
+        {"value": "0.412"}
+      ]
+    },
+    {
+      "dimensionValues": [
+        {"value": "2026-01-02"},
+        {"value": "desktop"},
+        {"value": "/home"}
+      ],
+      "metricValues": [
+        {"value": "1912"},
+        {"value": "41"},
+        {"value": "0.392"}
+      ]
+    },
+    {
+      "dimensionValues": [
+        {"value": "2026-01-03"},
+        {"value": "mobile"},
+        {"value": "/products"}
+      ],
+      "metricValues": [
+        {"value": "3456"},
+        {"value": "78"},
+        {"value": "0.345"}
+      ]
+    },
+    {
+      "dimensionValues": [
+        {"value": "2026-01-03"},
+        {"value": "desktop"},
+        {"value": "/products"}
+      ],
+      "metricValues": [
+        {"value": "2789"},
+        {"value": "65"},
+        {"value": "0.321"}
+      ]
+    },
+    {
+      "dimensionValues": [
+        {"value": "2026-01-04"},
+        {"value": "mobile"},
+        {"value": "/checkout"}
+      ],
+      "metricValues": [
+        {"value": "1567"},
+        {"value": "89"},
+        {"value": "0.234"}
+      ]
+    },
+    {
+      "dimensionValues": [
+        {"value": "2026-01-04"},
+        {"value": "desktop"},
+        {"value": "/checkout"}
+      ],
+      "metricValues": [
+        {"value": "1345"},
+        {"value": "76"},
+        {"value": "0.256"}
+      ]
+    }
+  ],
+  "rowCount": 8,
+  "metadata": {
+    "currencyCode": "USD",
+    "timeZone": "America/Los_Angeles"
+  }
+}
+
