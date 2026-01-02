@@ -1,0 +1,17 @@
+# Grafana Dashboard Provisioning Configuration
+# Implements Task P0-7: Monitoring & Alerting Infrastructure
+
+apiVersion: 1
+
+providers:
+  - name: 'GA4 Analytics Dashboards'
+    orgId: 1
+    folder: 'GA4 Analytics'
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 10
+    allowUiUpdates: true
+    options:
+      path: /etc/grafana/provisioning/dashboards
+      foldersFromFilesStructure: true
+

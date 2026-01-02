@@ -1,0 +1,68 @@
+# Prometheus Configuration
+# Implements Task P0-7: Monitoring & Alerting Infrastructure
+
+global:
+  scrape_interval: 15s  # Scrape targets every 15 seconds
+  evaluation_interval: 15s  # Evaluate rules every 15 seconds
+  scrape_timeout: 10s
+  
+  external_labels:
+    cluster: 'ga4-analytics'
+    environment: 'production'
+
+# Alertmanager configuration
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+           # - alertmanager:9093  # Uncomment when Alertmanager is deployed
+
+# Load alert rules
+rule_files:
+  - 'alert_rules/*.yml'
+
+# Scrape configurations
+scrape_configs:
+  # FastAPI application metrics
+  - job_name: 'ga4-api'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['api:8000']
+        labels:
+          service: 'ga4-api'
+          app: 'ga4-analytics'
+    
+    # Relabeling rules
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+        replacement: 'ga4-api'
+  
+  # Prometheus self-monitoring
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+        labels:
+          service: 'prometheus'
+  
+  # PostgreSQL metrics (if postgres_exporter is added)
+  # - job_name: 'postgres'
+  #   static_configs:
+  #     - targets: ['postgres-exporter:9187']
+  #       labels:
+  #         service: 'postgres'
+  
+  # Redis metrics (if redis_exporter is added)
+  # - job_name: 'redis'
+  #   static_configs:
+  #     - targets: ['redis-exporter:9121']
+  #       labels:
+  #         service: 'redis'
+  
+  # pgBouncer metrics (if pgbouncer_exporter is added)
+  # - job_name: 'pgbouncer'
+  #   static_configs:
+  #     - targets: ['pgbouncer-exporter:9127']
+  #       labels:
+  #         service: 'pgbouncer'
+

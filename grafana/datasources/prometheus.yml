@@ -1,0 +1,17 @@
+# Grafana Datasource Configuration
+# Implements Task P0-7: Monitoring & Alerting Infrastructure
+
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: true
+    jsonData:
+      httpMethod: POST
+      timeInterval: 15s
+    version: 1
+

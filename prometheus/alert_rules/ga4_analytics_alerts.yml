@@ -1,0 +1,280 @@
+# Prometheus Alert Rules for GA4 Analytics
+# Implements Task P0-7: Monitoring & Alerting Infrastructure
+
+groups:
+  # ========================================================================
+  # GA4 API Health Alerts
+  # ========================================================================
+  - name: ga4_api_health
+    interval: 30s
+    rules:
+      - alert: GA4_API_HighErrorRate
+        expr: |
+          (
+            sum(rate(ga4_api_calls_total{status="error"}[5m])) by (tenant_id)
+            /
+            sum(rate(ga4_api_calls_total[5m])) by (tenant_id)
+          ) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+          component: ga4_api
+        annotations:
+          summary: "High GA4 API error rate for tenant {{ $labels.tenant_id }}"
+          description: "Error rate is {{ $value | humanizePercentage }} (threshold: 5%)"
+          runbook_url: "https://docs.company.com/runbooks/ga4-api-errors"
+          action: "Check GA4 API credentials and quota. Review error logs."
+      
+      - alert: GA4_API_HighLatency
+        expr: |
+          histogram_quantile(0.95,
+            rate(ga4_api_latency_seconds_bucket[5m])
+          ) > 5.0
+        for: 10m
+        labels:
+          severity: warning
+          component: ga4_api
+        annotations:
+          summary: "High GA4 API latency (p95 > 5s)"
+          description: "95th percentile latency is {{ $value }}s for endpoint {{ $labels.endpoint }}"
+          action: "Check GA4 API status. Consider caching or rate limiting."
+      
+      - alert: GA4_QuotaExhaustion
+        expr: ga4_quota_usage_ratio > 0.90
+        for: 5m
+        labels:
+          severity: warning
+          component: ga4_api
+        annotations:
+          summary: "GA4 quota nearing exhaustion for tenant {{ $labels.tenant_id }}"
+          description: "Quota usage is {{ $value | humanizePercentage }} (threshold: 90%)"
+          action: "Contact admin to increase quota or implement request throttling."
+      
+      - alert: GA4_QuotaCritical
+        expr: ga4_quota_usage_ratio > 0.95
+        for: 2m
+        labels:
+          severity: critical
+          component: ga4_api
+        annotations:
+          summary: "GA4 quota critically low for tenant {{ $labels.tenant_id }}"
+          description: "Quota usage is {{ $value | humanizePercentage }} (threshold: 95%)"
+          action: "URGENT: Requests will be blocked. Increase quota immediately."
+  
+  # ========================================================================
+  # Vector Search Performance Alerts
+  # ========================================================================
+  - name: vector_search_performance
+    interval: 30s
+    rules:
+      - alert: VectorSearchHighLatency
+        expr: |
+          histogram_quantile(0.95,
+            rate(vector_search_latency_seconds_bucket[5m])
+          ) > 1.0
+        for: 10m
+        labels:
+          severity: warning
+          component: vector_search
+        annotations:
+          summary: "High vector search latency (p95 > 1s)"
+          description: "95th percentile latency is {{ $value }}s for tenant {{ $labels.tenant_id }}"
+          action: "Review vector indexes (HNSW). Consider index rebuilding."
+      
+      - alert: VectorSearchCacheMissRate
+        expr: (1 - vector_search_cache_hit_rate) > 0.80
+        for: 15m
+        labels:
+          severity: warning
+          component: vector_search
+        annotations:
+          summary: "High vector search cache miss rate for tenant {{ $labels.tenant_id }}"
+          description: "Cache miss rate is {{ $value | humanizePercentage }} (threshold: 80%)"
+          action: "Increase Redis cache size or TTL for vector search results."
+      
+      - alert: EmbeddingGenerationSlow
+        expr: |
+          histogram_quantile(0.95,
+            rate(vector_embedding_duration_seconds_bucket[5m])
+          ) > 5.0
+        for: 10m
+        labels:
+          severity: warning
+          component: embedding
+        annotations:
+          summary: "Slow embedding generation (p95 > 5s)"
+          description: "95th percentile is {{ $value }}s for model {{ $labels.model }}"
+          action: "Check OpenAI API status. Consider batch size tuning."
+  
+  # ========================================================================
+  # SSE Connection Alerts
+  # ========================================================================
+  - name: sse_connections
+    interval: 30s
+    rules:
+      - alert: SSEConnectionsHigh
+        expr: sum(sse_active_connections) > 900
+        for: 5m
+        labels:
+          severity: warning
+          component: sse
+        annotations:
+          summary: "High number of active SSE connections ({{ $value }})"
+          description: "Connection count approaching limit (1000)"
+          action: "Prepare to scale horizontally. Check for connection leaks."
+      
+      - alert: SSEConnectionsCritical
+        expr: sum(sse_active_connections) > 950
+        for: 2m
+        labels:
+          severity: critical
+          component: sse
+        annotations:
+          summary: "CRITICAL: SSE connections at {{ $value }}/1000"
+          description: "Immediate risk of connection exhaustion"
+          action: "URGENT: Scale horizontally immediately or reject new connections."
+      
+      - alert: SSEHighErrorRate
+        expr: |
+          (
+            sum(rate(sse_errors_total[5m]))
+            /
+            sum(rate(sse_events_sent_total[5m]))
+          ) > 0.10
+        for: 10m
+        labels:
+          severity: warning
+          component: sse
+        annotations:
+          summary: "High SSE error rate ({{ $value | humanizePercentage }})"
+          description: "Error rate exceeds 10% threshold"
+          action: "Check network stability and server logs."
+  
+  # ========================================================================
+  # Database Connection Pool Alerts
+  # ========================================================================
+  - name: database_connection_pool
+    interval: 30s
+    rules:
+      - alert: ConnectionPoolHighUtilization
+        expr: connection_pool_utilization_ratio > 0.80
+        for: 5m
+        labels:
+          severity: warning
+          component: database
+        annotations:
+          summary: "High connection pool utilization for {{ $labels.pool_type }}"
+          description: "Pool utilization is {{ $value | humanizePercentage }} (threshold: 80%)"
+          action: "Increase pool size or investigate slow queries."
+      
+      - alert: ConnectionPoolCritical
+        expr: connection_pool_utilization_ratio > 0.90
+        for: 2m
+        labels:
+          severity: critical
+          component: database
+        annotations:
+          summary: "CRITICAL: Connection pool at {{ $value | humanizePercentage }}"
+          description: "Pool {{ $labels.pool_type }} critically full"
+          action: "URGENT: Scale pool or kill long-running queries."
+      
+      - alert: DatabaseQuerySlow
+        expr: |
+          histogram_quantile(0.95,
+            rate(database_query_duration_seconds_bucket[5m])
+          ) > 2.0
+        for: 10m
+        labels:
+          severity: warning
+          component: database
+        annotations:
+          summary: "Slow database queries (p95 > 2s)"
+          description: "95th percentile is {{ $value }}s for {{ $labels.operation }}"
+          action: "Review query performance. Check indexes and explain plans."
+  
+  # ========================================================================
+  # System Health Alerts
+  # ========================================================================
+  - name: system_health
+    interval: 30s
+    rules:
+      - alert: HighCPUUsage
+        expr: system_cpu_usage_percent > 80
+        for: 10m
+        labels:
+          severity: warning
+          component: system
+        annotations:
+          summary: "High CPU usage ({{ $value }}%)"
+          description: "CPU usage above 80% for 10 minutes"
+          action: "Review CPU-intensive processes. Consider scaling."
+      
+      - alert: CriticalCPUUsage
+        expr: system_cpu_usage_percent > 95
+        for: 5m
+        labels:
+          severity: critical
+          component: system
+        annotations:
+          summary: "CRITICAL: CPU usage at {{ $value }}%"
+          description: "CPU critically high, service degradation likely"
+          action: "URGENT: Scale immediately or kill non-essential processes."
+      
+      - alert: HighMemoryUsage
+        expr: system_memory_usage_bytes{type="rss"} > 2e9
+        for: 10m
+        labels:
+          severity: warning
+          component: system
+        annotations:
+          summary: "High memory usage ({{ $value | humanize }}B)"
+          description: "RSS memory above 2GB threshold"
+          action: "Check for memory leaks. Review caching strategy."
+      
+      - alert: ServiceDown
+        expr: up == 0
+        for: 2m
+        labels:
+          severity: critical
+          component: system
+        annotations:
+          summary: "Service {{ $labels.job }} is down"
+          description: "Service unreachable for 2 minutes"
+          action: "URGENT: Investigate service crash. Check logs and restart."
+  
+  # ========================================================================
+  # HTTP API Alerts
+  # ========================================================================
+  - name: http_api_health
+    interval: 30s
+    rules:
+      - alert: HighHTTPErrorRate
+        expr: |
+          (
+            sum(rate(http_requests_total{status_code=~"5.."}[5m]))
+            /
+            sum(rate(http_requests_total[5m]))
+          ) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+          component: http_api
+        annotations:
+          summary: "High HTTP 5xx error rate ({{ $value | humanizePercentage }})"
+          description: "Server error rate exceeds 5% threshold"
+          action: "Check application logs. Review recent deployments."
+      
+      - alert: HighHTTPLatency
+        expr: |
+          histogram_quantile(0.95,
+            rate(http_request_duration_seconds_bucket[5m])
+          ) > 2.0
+        for: 10m
+        labels:
+          severity: warning
+          component: http_api
+        annotations:
+          summary: "High HTTP request latency (p95 > 2s)"
+          description: "95th percentile latency is {{ $value }}s for {{ $labels.endpoint }}"
+          action: "Review slow endpoints. Check database and external API calls."
+
