@@ -7,9 +7,12 @@ This is the main server application that provides:
 - Authentication and authorization
 - Multi-tenant isolation
 - Monitoring and health checks
+- Graceful shutdown (Task P0-20)
 """
 
+import asyncio
 import logging
+import signal
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 
@@ -21,6 +24,7 @@ from sentry_sdk.integrations.fastapi import FastApiIntegration
 from prometheus_client import make_asgi_app
 
 from .core.config import settings
+from .core.connection_manager import get_connection_manager
 
 # Configure logging
 logging.basicConfig(
@@ -49,7 +53,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
     - Database connection pool initialization
     - Redis connection
     - Agent registry initialization
-    - Graceful shutdown
+    - Graceful shutdown (Task P0-20)
     """
     logger.info("Starting GA4 Analytics API...")
     
@@ -64,6 +68,26 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
         except Exception as e:
             logger.warning(f"Database initialization skipped: {e}")
     
+    # Initialize connection manager (Task P0-20)
+    connection_manager = get_connection_manager(
+        grace_period=settings.SHUTDOWN_GRACE_PERIOD
+    )
+    logger.info(f"SSE connection manager initialized (grace period: {settings.SHUTDOWN_GRACE_PERIOD}s)")
+    
+    # Setup signal handlers for graceful shutdown
+    shutdown_event = asyncio.Event()
+    
+    def signal_handler(signum, frame):
+        """Handle SIGTERM and SIGINT signals."""
+        signal_name = signal.Signals(signum).name
+        logger.info(f"Received {signal_name} signal, initiating graceful shutdown...")
+        shutdown_event.set()
+    
+    # Register signal handlers
+    signal.signal(signal.SIGTERM, signal_handler)
+    signal.signal(signal.SIGINT, signal_handler)
+    logger.info("Signal handlers registered (SIGTERM, SIGINT)")
+    
     # TODO: Initialize Redis connection
     # TODO: Register agents
     
@@ -73,6 +97,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
     
     # Shutdown logic
     logger.info("Shutting down GA4 Analytics API...")
+    
+    # Gracefully shutdown SSE connections (Task P0-20)
+    logger.info(f"Active SSE connections: {connection_manager.active_connection_count}")
+    await connection_manager.graceful_shutdown()
     
     # Close database connections
     await close_db()

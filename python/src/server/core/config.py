@@ -68,6 +68,12 @@ class Settings(BaseSettings):
         description="Shared secret for NextAuth → FastAPI communication"
     )
     
+    # Graceful Shutdown (Task P0-20)
+    SHUTDOWN_GRACE_PERIOD: int = Field(
+        default=20,
+        description="Seconds to wait for active SSE connections to close during shutdown"
+    )
+    
     @field_validator("NEXTAUTH_SECRET")
     @classmethod
     def validate_nextauth_secret(cls, v: str) -> str:
