@@ -522,3 +522,4 @@ class TestPerformance:
         assert elapsed < 0.1, f"Grounding check took {elapsed:.2f}s (expected <0.1s)"
         assert report.total_claims > 0
 
+

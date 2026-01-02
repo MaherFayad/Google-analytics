@@ -464,3 +464,4 @@ def validate_chart_data(chart_config: dict) -> ChartConfig:
             f"Must be one of: line, bar, pie, area"
         )
 
+

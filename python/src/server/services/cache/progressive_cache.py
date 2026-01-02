@@ -344,3 +344,4 @@ class ProgressiveCacheService:
         """Reset performance statistics."""
         self.stats = CacheStats()
 
+

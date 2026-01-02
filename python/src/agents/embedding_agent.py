@@ -176,3 +176,4 @@ class EmbeddingAgent(BaseAgent[EmbeddingResult]):
         return await self.run_async(None, texts=[text], tenant_id=tenant_id)  # type: ignore
 
 
+
