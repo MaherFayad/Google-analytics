@@ -1,0 +1,179 @@
+version: '3.8'
+
+services:
+  # PostgreSQL with pgvector extension
+  postgres:
+    image: ankane/pgvector:latest
+    container_name: ga4-postgres
+    environment:
+      POSTGRES_DB: ga4_analytics
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_HOST_AUTH_METHOD: trust
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./migrations/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - ga4-network
+
+  # Redis for caching and rate limiting
+  redis:
+    image: redis:7-alpine
+    container_name: ga4-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - ga4-network
+
+  # pgBouncer for connection pooling (transaction mode)
+  pgbouncer-transactional:
+    image: edoburu/pgbouncer:latest
+    container_name: ga4-pgbouncer-transactional
+    environment:
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/ga4_analytics
+      POOL_MODE: transaction
+      MAX_CLIENT_CONN: 1000
+      DEFAULT_POOL_SIZE: 25
+      RESERVE_POOL_SIZE: 5
+      MAX_DB_CONNECTIONS: 50
+    ports:
+      - "6432:5432"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - ga4-network
+
+  # pgBouncer for connection pooling (session mode for long transactions)
+  pgbouncer-session:
+    image: edoburu/pgbouncer:latest
+    container_name: ga4-pgbouncer-session
+    environment:
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/ga4_analytics
+      POOL_MODE: session
+      MAX_CLIENT_CONN: 100
+      DEFAULT_POOL_SIZE: 10
+      RESERVE_POOL_SIZE: 2
+      MAX_DB_CONNECTIONS: 20
+    ports:
+      - "6433:5432"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - ga4-network
+
+  # FastAPI backend
+  api:
+    build:
+      context: ./python
+      dockerfile: Dockerfile
+    container_name: ga4-api
+    environment:
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@pgbouncer-transactional:5432/ga4_analytics
+      REDIS_URL: redis://redis:6379
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET}
+      SENTRY_DSN: ${SENTRY_DSN:-}
+      ENVIRONMENT: development
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./python/src:/app/src
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      pgbouncer-transactional:
+        condition: service_started
+    command: uvicorn src.server.main:app --host 0.0.0.0 --port 8000 --reload
+    networks:
+      - ga4-network
+
+  # Next.js frontend
+  web:
+    build:
+      context: ./archon-ui-main
+      dockerfile: Dockerfile
+    container_name: ga4-web
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8000
+      NEXTAUTH_URL: http://localhost:3000
+      NEXTAUTH_SECRET: ${NEXTAUTH_SECRET}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET}
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./archon-ui-main/src:/app/src
+      - ./archon-ui-main/public:/app/public
+    depends_on:
+      - api
+    command: npm run dev
+    networks:
+      - ga4-network
+
+  # Prometheus for metrics
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: ga4-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+    networks:
+      - ga4-network
+
+  # Grafana for dashboards
+  grafana:
+    image: grafana/grafana:latest
+    container_name: ga4-grafana
+    ports:
+      - "3001:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_SECURITY_ADMIN_USER: admin
+    volumes:
+      - ./grafana/dashboards:/etc/grafana/provisioning/dashboards
+      - ./grafana/datasources:/etc/grafana/provisioning/datasources
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      - prometheus
+    networks:
+      - ga4-network
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  prometheus_data:
+    driver: local
+  grafana_data:
+    driver: local
+
+networks:
+  ga4-network:
+    driver: bridge
+
