@@ -2,12 +2,13 @@
 RagAgent - Retrieves context using vector similarity search.
 
 Implements Task P0-1: RagAgent
+Enhanced with Task P0-19: RAG Retrieval Confidence Filtering
 
 Responsibilities:
 - Perform vector similarity search with pgvector
 - Enforce tenant isolation (Task P0-2)
 - Return relevant documents with citations
-- Filter by confidence threshold
+- Filter by confidence threshold with status levels (Task P0-19)
 """
 
 import logging
@@ -21,6 +22,14 @@ from .base_agent import BaseAgent
 from .schemas.results import RetrievalResult, SourceCitation
 
 logger = logging.getLogger(__name__)
+
+# Import monitoring (optional, for production)
+try:
+    from ..server.monitoring.metrics import record_rag_retrieval
+    MONITORING_ENABLED = True
+except ImportError:
+    MONITORING_ENABLED = False
+    logger.warning("Monitoring not available, RAG metrics disabled")
 
 
 class RagAgent(BaseAgent[RetrievalResult]):
@@ -153,16 +162,28 @@ class RagAgent(BaseAgent[RetrievalResult]):
                     )
                     citations.append(citation)
                 
-                # Calculate average confidence
+                # Calculate average confidence and determine status (Task P0-19)
                 avg_confidence = (
                     sum(c.similarity_score for c in citations) / len(citations)
                     if citations else 0.0
                 )
                 
+                # Determine confidence status
+                status = self._get_confidence_status(avg_confidence, min_confidence)
+                
+                # Count filtered results
+                filtered_count = match_count * 2 - len(rows)
+                total_found = match_count * 2
+                
                 logger.info(
                     f"RAG retrieved {len(documents)} documents from DB "
-                    f"(confidence: {avg_confidence:.2f})"
+                    f"(confidence: {avg_confidence:.2f}, status: {status}, "
+                    f"filtered: {filtered_count}/{total_found})"
                 )
+                
+                # Record monitoring metrics (Task P0-19)
+                if MONITORING_ENABLED:
+                    record_rag_retrieval(tenant_id, avg_confidence, status, filtered_count)
                 
             else:
                 # Mock results for testing (when db_session not available)
@@ -199,11 +220,21 @@ class RagAgent(BaseAgent[RetrievalResult]):
                 ]
                 
                 avg_confidence = sum(c.similarity_score for c in citations) / len(citations)
+                status = self._get_confidence_status(avg_confidence, min_confidence)
+                filtered_count = 0
+                total_found = len(documents)
+                
+                # Record monitoring metrics (Task P0-19)
+                if MONITORING_ENABLED:
+                    record_rag_retrieval(tenant_id, avg_confidence, status, filtered_count)
             
             return RetrievalResult(
                 documents=documents,
                 citations=citations,
                 confidence=avg_confidence,
+                status=status,
+                filtered_count=filtered_count,
+                total_found=total_found,
                 tenant_id=tenant_id,
                 query_embedding=query_embedding,
                 match_count=len(documents),
@@ -217,8 +248,41 @@ class RagAgent(BaseAgent[RetrievalResult]):
                 documents=[],
                 citations=[],
                 confidence=0.0,
+                status="no_relevant_context",
+                filtered_count=0,
+                total_found=0,
                 tenant_id=tenant_id,
                 query_embedding=query_embedding,
                 match_count=0,
             )
+    
+    def _get_confidence_status(
+        self,
+        confidence: float,
+        threshold: float
+    ) -> str:
+        """
+        Determine confidence status level (Task P0-19).
+        
+        Args:
+            confidence: Average similarity score
+            threshold: Current threshold
+            
+        Returns:
+            Confidence status: high_confidence, medium_confidence,
+            low_confidence, or no_relevant_context
+        """
+        # Configurable thresholds (from Settings in production)
+        HIGH_THRESHOLD = 0.85
+        MEDIUM_THRESHOLD = 0.70
+        LOW_THRESHOLD = 0.50
+        
+        if confidence >= HIGH_THRESHOLD:
+            return "high_confidence"
+        elif confidence >= MEDIUM_THRESHOLD:
+            return "medium_confidence"
+        elif confidence >= LOW_THRESHOLD:
+            return "low_confidence"
+        else:
+            return "no_relevant_context"
 

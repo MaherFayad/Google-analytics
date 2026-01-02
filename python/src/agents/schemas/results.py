@@ -135,7 +135,7 @@ class SourceCitation(BaseModel):
 
 
 class RetrievalResult(BaseModel):
-    """Result from RagAgent - vector similarity search."""
+    """Result from RagAgent - vector similarity search with confidence filtering (Task P0-19)."""
     
     documents: List[str] = Field(
         description="Retrieved document texts (descriptive summaries)"
@@ -148,13 +148,24 @@ class RetrievalResult(BaseModel):
         le=1.0,
         description="Average similarity score of retrieved documents"
     )
+    status: Literal["high_confidence", "medium_confidence", "low_confidence", "no_relevant_context"] = Field(
+        description="Confidence status level (Task P0-19)"
+    )
+    filtered_count: int = Field(
+        default=0,
+        description="Number of results filtered out due to low confidence"
+    )
+    total_found: int = Field(
+        default=0,
+        description="Total number of results before filtering"
+    )
     tenant_id: str
     query_embedding: List[float] = Field(
         description="Query embedding used for search"
     )
     match_count: int = Field(
         default=5,
-        description="Number of documents retrieved"
+        description="Number of documents retrieved after filtering"
     )
     timestamp: datetime = Field(default_factory=datetime.utcnow)
     

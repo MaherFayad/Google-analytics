@@ -22,7 +22,7 @@ import time
 from typing import Optional, Dict, Any
 from functools import wraps
 
-from prometheus_client import Gauge, Counter, Histogram, Info, Summary
+from prometheus_client import Gauge, Counter, Histogram, Info, Summary, Enum
 
 from ..database import get_pool_stats
 
@@ -703,6 +703,80 @@ async def update_system_metrics():
 
 
 # ============================================================================
+# RAG Confidence Filtering Metrics (Task P0-19)
+# ============================================================================
+
+# Confidence score distribution
+rag_confidence_distribution = Histogram(
+    'rag_confidence_distribution',
+    'Distribution of RAG retrieval confidence scores',
+    ['tenant_id', 'status'],  # status: high_confidence, medium_confidence, low_confidence, no_relevant_context
+    buckets=(0.0, 0.3, 0.5, 0.7, 0.85, 0.95, 1.0)
+)
+
+# Filtered results counter
+rag_filtered_results_total = Counter(
+    'rag_filtered_results_total',
+    'Number of results filtered out due to low confidence',
+    ['tenant_id']
+)
+
+# No relevant context queries
+rag_no_context_queries_total = Counter(
+    'rag_no_context_queries_total',
+    'Queries with no relevant cached context found',
+    ['tenant_id']
+)
+
+# RAG confidence status gauge
+rag_confidence_status = Gauge(
+    'rag_confidence_status',
+    'Current RAG confidence status level',
+    ['tenant_id', 'status']  # high, medium, low, none
+)
+
+
+# ============================================================================
+# RAG Confidence Metric Helpers
+# ============================================================================
+
+def record_rag_retrieval(
+    tenant_id: str,
+    confidence: float,
+    status: str,
+    filtered_count: int
+):
+    """
+    Record RAG retrieval metrics.
+    
+    Args:
+        tenant_id: Tenant ID
+        confidence: Average confidence score
+        status: Confidence status level
+        filtered_count: Number of filtered results
+    """
+    # Record confidence distribution
+    rag_confidence_distribution.labels(
+        tenant_id=tenant_id,
+        status=status
+    ).observe(confidence)
+    
+    # Record filtered results
+    if filtered_count > 0:
+        rag_filtered_results_total.labels(tenant_id=tenant_id).inc(filtered_count)
+    
+    # Record no relevant context queries
+    if status == "no_relevant_context":
+        rag_no_context_queries_total.labels(tenant_id=tenant_id).inc()
+    
+    # Update status gauge
+    rag_confidence_status.labels(
+        tenant_id=tenant_id,
+        status=status
+    ).set(confidence)
+
+
+# ============================================================================
 # Export metrics for FastAPI /metrics endpoint
 # ============================================================================
 
@@ -754,6 +828,13 @@ system_metrics = {
     "background_tasks": background_task_queue_size,
 }
 
+rag_metrics = {
+    "confidence_distribution": rag_confidence_distribution,
+    "filtered_results": rag_filtered_results_total,
+    "no_context_queries": rag_no_context_queries_total,
+    "confidence_status": rag_confidence_status,
+}
+
 all_metrics = {
     "connection_pool": connection_pool_metrics,
     "ga4": ga4_metrics,
@@ -761,5 +842,6 @@ all_metrics = {
     "sse": sse_metrics,
     "http": http_metrics,
     "system": system_metrics,
+    "rag": rag_metrics,
 }
 

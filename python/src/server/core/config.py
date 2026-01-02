@@ -74,6 +74,31 @@ class Settings(BaseSettings):
         description="Seconds to wait for active SSE connections to close during shutdown"
     )
     
+    # RAG Confidence Filtering (Task P0-19)
+    RAG_HIGH_CONFIDENCE_THRESHOLD: float = Field(
+        default=0.85,
+        ge=0.0,
+        le=1.0,
+        description="Threshold for high confidence RAG results"
+    )
+    RAG_MEDIUM_CONFIDENCE_THRESHOLD: float = Field(
+        default=0.70,
+        ge=0.0,
+        le=1.0,
+        description="Threshold for medium confidence RAG results"
+    )
+    RAG_LOW_CONFIDENCE_THRESHOLD: float = Field(
+        default=0.50,
+        ge=0.0,
+        le=1.0,
+        description="Threshold for low confidence RAG results"
+    )
+    RAG_MIN_RESULTS: int = Field(
+        default=3,
+        ge=1,
+        description="Minimum number of results to return (even if below threshold)"
+    )
+    
     @field_validator("NEXTAUTH_SECRET")
     @classmethod
     def validate_nextauth_secret(cls, v: str) -> str:
