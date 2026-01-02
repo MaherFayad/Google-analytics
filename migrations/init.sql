@@ -3,8 +3,26 @@
 
 -- Enable required extensions
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
-CREATE EXTENSION IF NOT EXISTS "pgvector";
-CREATE EXTENSION IF NOT EXISTS "pgsodium";
+
+-- Try to create pgvector extension (may not be available in all images)
+DO $$
+BEGIN
+    CREATE EXTENSION IF NOT EXISTS "vector";
+EXCEPTION
+    WHEN undefined_file THEN
+        RAISE NOTICE 'pgvector extension not available, skipping';
+END
+$$;
+
+-- Try to create pgsodium extension (may not be available)
+DO $$
+BEGIN
+    CREATE EXTENSION IF NOT EXISTS "pgsodium";
+EXCEPTION
+    WHEN undefined_file THEN
+        RAISE NOTICE 'pgsodium extension not available, skipping';
+END
+$$;
 
 -- Create app schema
 CREATE SCHEMA IF NOT EXISTS app;
