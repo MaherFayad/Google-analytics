@@ -131,6 +131,7 @@ app.add_middleware(
 # JWT authentication middleware (Task P0-27)
 from .middleware.auth import JWTAuthMiddleware
 from .middleware.tenant import TenantIsolationMiddleware
+from .middleware.grounding_enforcer import GroundingEnforcerMiddleware
 
 app.add_middleware(
     JWTAuthMiddleware,
@@ -141,6 +142,14 @@ app.add_middleware(
 app.add_middleware(
     TenantIsolationMiddleware,
     enforce_tenant=(settings.ENVIRONMENT != "development")
+)
+
+# Grounding enforcer middleware (Task P0-46)
+app.add_middleware(
+    GroundingEnforcerMiddleware,
+    grounding_threshold=getattr(settings, 'GROUNDING_THRESHOLD', 0.85),
+    max_retries=getattr(settings, 'GROUNDING_MAX_RETRIES', 3),
+    enforce=(settings.ENVIRONMENT != "development")  # Disable in dev for testing
 )
 
 # Mount Prometheus metrics endpoint
@@ -205,9 +214,15 @@ async def liveness_check():
 
 # Include API routers
 from .api.v1 import auth, tenants, analytics
+from .api.v1.admin import tenant_management_router, transformation_diff_router
+
 app.include_router(auth.router, prefix="/api/v1", tags=["authentication"])
 app.include_router(tenants.router, prefix="/api/v1", tags=["tenants"])
 app.include_router(analytics.router, prefix="/api/v1", tags=["analytics"])
+
+# Admin routers
+app.include_router(tenant_management_router, prefix="/api/v1", tags=["admin"])
+app.include_router(transformation_diff_router, prefix="/api/v1", tags=["admin"])
 
 # TODO: Import additional routers
 # from .api.v1 import reports
