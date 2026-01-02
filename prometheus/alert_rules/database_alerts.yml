@@ -1,0 +1,251 @@
+# Prometheus Alert Rules: Database Connection Pools
+#
+# Implements Task P0-13: pgBouncer Connection Pool Health Monitoring
+#
+# Alert Thresholds:
+# - Warning: 75-90% utilization
+# - Critical: >90% utilization
+#
+# Alert Routing:
+# - Warning → Slack notification
+# - Critical → PagerDuty page + Slack
+
+groups:
+  - name: database_connection_pools
+    interval: 30s
+    rules:
+      # ======================================================================
+      # Connection Pool Utilization Alerts
+      # ======================================================================
+      
+      - alert: ConnectionPoolHighUtilization
+        expr: connection_pool_utilization_ratio > 0.75
+        for: 2m
+        labels:
+          severity: warning
+          component: database
+          pool: '{{ $labels.pool_type }}'
+        annotations:
+          summary: "Connection pool utilization >75% - {{ $labels.pool_type }}"
+          description: |
+            Connection pool: {{ $labels.pool_type }}
+            Current utilization: {{ $value | humanizePercentage }}
+            
+            Pool capacity is running high. Consider:
+            1. Investigating slow queries
+            2. Increasing pool size if sustained
+            3. Checking for connection leaks
+          runbook_url: "https://docs.company.com/runbooks/connection-pool-high"
+          dashboard_url: "http://grafana:3000/d/database-health"
+      
+      - alert: ConnectionPoolCriticalUtilization
+        expr: connection_pool_utilization_ratio > 0.90
+        for: 1m
+        labels:
+          severity: critical
+          component: database
+          pool: '{{ $labels.pool_type }}'
+          pager: "true"  # Triggers PagerDuty
+        annotations:
+          summary: "🔥 CRITICAL: Connection pool >90% - {{ $labels.pool_type }}"
+          description: |
+            Connection pool: {{ $labels.pool_type }}
+            Current utilization: {{ $value | humanizePercentage }}
+            
+            IMMEDIATE ACTIONS REQUIRED:
+            1. Check for long-running queries: SELECT * FROM pg_stat_activity WHERE state = 'active' AND age(now(), query_start) > interval '1 minute';
+            2. Consider terminating slow queries: SELECT pg_terminate_backend(pid);
+            3. Scale up pool if necessary
+            4. Review application logs for connection leaks
+          action: "Investigate immediately - pool exhaustion imminent"
+          runbook_url: "https://docs.company.com/runbooks/connection-pool-critical"
+          dashboard_url: "http://grafana:3000/d/database-health"
+      
+      # ======================================================================
+      # Overflow Usage Alerts (indicates pool undersized)
+      # ======================================================================
+      
+      - alert: ConnectionPoolUsingOverflow
+        expr: connection_pool_overflow_connections > 5
+        for: 5m
+        labels:
+          severity: warning
+          component: database
+          pool: '{{ $labels.pool_type }}'
+        annotations:
+          summary: "Connection pool using overflow capacity - {{ $labels.pool_type }}"
+          description: |
+            Pool: {{ $labels.pool_type }}
+            Overflow connections in use: {{ $value }}
+            
+            Pool is regularly exceeding its base size. Consider:
+            1. Increasing default pool_size
+            2. Investigating if load has increased
+            3. Checking for connection leaks
+          runbook_url: "https://docs.company.com/runbooks/connection-pool-overflow"
+      
+      # ======================================================================
+      # Pool Exhaustion (all connections in use + max overflow reached)
+      # ======================================================================
+      
+      - alert: ConnectionPoolExhausted
+        expr: |
+          connection_pool_active_connections >= connection_pool_size_total
+        for: 1m
+        labels:
+          severity: critical
+          component: database
+          pool: '{{ $labels.pool_type }}'
+          pager: "true"
+        annotations:
+          summary: "🚨 CONNECTION POOL EXHAUSTED - {{ $labels.pool_type }}"
+          description: |
+            Pool: {{ $labels.pool_type }}
+            All connections in use (including overflow)
+            
+            NEW REQUESTS WILL FAIL!
+            
+            IMMEDIATE ACTIONS:
+            1. Check /health/database endpoint for detailed stats
+            2. Identify and kill slow queries
+            3. Scale up pool size ASAP
+            4. Consider restarting application if connections are leaked
+          action: "URGENT: Pool exhausted - service degraded"
+          runbook_url: "https://docs.company.com/runbooks/connection-pool-exhausted"
+      
+      # ======================================================================
+      # Connection Pool Recovery
+      # ======================================================================
+      
+      - alert: ConnectionPoolRecovered
+        expr: |
+          (connection_pool_utilization_ratio < 0.70)
+          and
+          (connection_pool_utilization_ratio offset 5m > 0.90)
+        for: 1m
+        labels:
+          severity: info
+          component: database
+          pool: '{{ $labels.pool_type }}'
+        annotations:
+          summary: "✅ Connection pool recovered - {{ $labels.pool_type }}"
+          description: |
+            Pool: {{ $labels.pool_type }}
+            Current utilization: {{ $value | humanizePercentage }}
+            
+            Pool has recovered from high utilization.
+            Monitor for recurrence and investigate root cause.
+          runbook_url: "https://docs.company.com/runbooks/connection-pool-recovered"
+      
+      # ======================================================================
+      # Idle Connections Low (pool may be too small)
+      # ======================================================================
+      
+      - alert: ConnectionPoolLowIdleConnections
+        expr: connection_pool_idle_connections < 2
+        for: 10m
+        labels:
+          severity: warning
+          component: database
+          pool: '{{ $labels.pool_type }}'
+        annotations:
+          summary: "Low idle connections in pool - {{ $labels.pool_type }}"
+          description: |
+            Pool: {{ $labels.pool_type }}
+            Idle connections: {{ $value }}
+            
+            Very few idle connections available. This indicates:
+            1. Pool is sized exactly for current load (no buffer)
+            2. Traffic spike could quickly exhaust pool
+            
+            Consider increasing pool size for better resilience.
+          runbook_url: "https://docs.company.com/runbooks/connection-pool-low-idle"
+      
+      # ======================================================================
+      # Database Query Performance
+      # ======================================================================
+      
+      - alert: DatabaseQueriesSlow
+        expr: |
+          histogram_quantile(0.95, 
+            rate(database_query_duration_seconds_bucket[5m])
+          ) > 1.0
+        for: 5m
+        labels:
+          severity: warning
+          component: database
+        annotations:
+          summary: "Database queries slow (p95 > 1 second)"
+          description: |
+            95th percentile query duration: {{ $value | humanizeDuration }}
+            
+            Slow queries are impacting performance and may cause pool exhaustion.
+            
+            Actions:
+            1. Check pg_stat_statements for slowest queries
+            2. Review query plans with EXPLAIN ANALYZE
+            3. Consider adding indexes
+            4. Optimize application queries
+          runbook_url: "https://docs.company.com/runbooks/slow-queries"
+      
+      # ======================================================================
+      # Database Error Rate
+      # ======================================================================
+      
+      - alert: DatabaseHighErrorRate
+        expr: |
+          rate(database_errors_total[5m]) > 0.1
+        for: 2m
+        labels:
+          severity: warning
+          component: database
+        annotations:
+          summary: "High database error rate detected"
+          description: |
+            Error rate: {{ $value | humanize }} errors/second
+            
+            Elevated database error rate detected. Check:
+            1. Application logs for error details
+            2. PostgreSQL logs for server errors
+            3. Connection pool health
+            4. Network issues between app and database
+          runbook_url: "https://docs.company.com/runbooks/database-errors"
+
+# ============================================================================
+# Alert Routing Configuration (Alertmanager)
+# ============================================================================
+#
+# Configure in alertmanager.yml:
+#
+# route:
+#   receiver: 'slack-notifications'
+#   group_by: ['alertname', 'pool']
+#   group_wait: 30s
+#   group_interval: 5m
+#   repeat_interval: 4h
+#   
+#   routes:
+#     # Critical alerts → PagerDuty + Slack
+#     - match:
+#         severity: critical
+#       receiver: 'pagerduty-critical'
+#       continue: true  # Also send to Slack
+#     
+#     # Warning alerts → Slack only
+#     - match:
+#         severity: warning
+#       receiver: 'slack-notifications'
+#
+# receivers:
+#   - name: 'pagerduty-critical'
+#     pagerduty_configs:
+#       - service_key: '<PAGERDUTY_SERVICE_KEY>'
+#         description: '{{ .GroupLabels.alertname }}: {{ .CommonAnnotations.summary }}'
+#   
+#   - name: 'slack-notifications'
+#     slack_configs:
+#       - api_url: '<SLACK_WEBHOOK_URL>'
+#         channel: '#alerts-database'
+#         title: '{{ .GroupLabels.alertname }}'
+#         text: '{{ .CommonAnnotations.description }}'
+
