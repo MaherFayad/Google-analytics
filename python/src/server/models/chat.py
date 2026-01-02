@@ -9,7 +9,7 @@ Features:
 - Support for streaming status tracking
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 from uuid import UUID, uuid4
 
@@ -41,8 +41,8 @@ class ChatSession(SQLModel, table=True):
     tenant_id: str = Field(default="default", index=True, max_length=100)
     
     # Timestamps
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     last_message_at: Optional[datetime] = None
     
     # Relationships
@@ -97,7 +97,7 @@ class ChatMessage(SQLModel, table=True):
     tenant_id: str = Field(default="default", index=True, max_length=100)
     
     # Timestamps
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     
     # Relationships
     session: ChatSession = Relationship(back_populates="messages")

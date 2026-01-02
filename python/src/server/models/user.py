@@ -7,7 +7,7 @@ Critical: Encryption is NOT implemented in Python. The refresh_token
 encryption is handled via pgsodium at the database level (Task 1.4).
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 from uuid import UUID, uuid4
 
@@ -34,8 +34,8 @@ class User(SQLModel, table=True):
     provider_user_id: str = Field(index=True, max_length=255)
     
     # Timestamps
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     last_login_at: Optional[datetime] = None
     
     # Relationships
@@ -93,8 +93,8 @@ class GA4Credentials(SQLModel, table=True):
     token_type: str = Field(default="Bearer")
     
     # Timestamps
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     last_used_at: Optional[datetime] = None
     
     # Relationships

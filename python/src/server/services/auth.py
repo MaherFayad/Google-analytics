@@ -10,13 +10,14 @@ Handles:
 """
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import httpx
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..core.config import settings
 from ..models.user import User, GA4Credentials
 
 logger = logging.getLogger(__name__)
@@ -67,8 +68,8 @@ class AuthService:
         if not credentials:
             raise AuthenticationError("No GA4 credentials found for user")
         
-        # Check if token needs refresh
-        now = datetime.utcnow()
+        # Bug Fix #1: Use timezone-aware datetime
+        now = datetime.now(timezone.utc)
         expires_soon = credentials.token_expiry - self.TOKEN_EXPIRY_BUFFER
         
         if now >= expires_soon:
@@ -87,13 +88,23 @@ class AuthService:
         Raises:
             AuthenticationError: If refresh fails
         """
-        # Decrypt refresh token from database
-        # Note: In production, this calls the decrypt_refresh_token() SQL function
-        stmt = select(credentials.__class__).where(
-            credentials.__class__.id == credentials.id
+        # Bug Fix #4: Decrypt refresh token from database using pgsodium function
+        # The refresh_token column contains '[ENCRYPTED]' placeholder
+        # Actual encrypted data is in encrypted_refresh_token
+        # Must call decrypt_refresh_token() SQL function to get plaintext
+        decrypt_stmt = text("""
+            SELECT decrypt_refresh_token(:credential_id) AS plaintext_token
+        """)
+        result = await self.session.execute(
+            decrypt_stmt,
+            {"credential_id": str(credentials.id)}
         )
-        result = await self.session.execute(stmt)
-        creds = result.scalar_one()
+        row = result.fetchone()
+        
+        if not row or not row.plaintext_token:
+            raise AuthenticationError("Failed to decrypt refresh token")
+        
+        plaintext_refresh_token = row.plaintext_token
         
         # Call Google token endpoint
         async with httpx.AsyncClient() as client:
@@ -101,9 +112,10 @@ class AuthService:
                 response = await client.post(
                     self.GOOGLE_TOKEN_URL,
                     data={
-                        "client_id": "YOUR_CLIENT_ID",  # From settings
-                        "client_secret": "YOUR_CLIENT_SECRET",
-                        "refresh_token": creds.refresh_token,
+                        # Bug Fix #5: Use actual credentials from settings
+                        "client_id": settings.GOOGLE_CLIENT_ID,
+                        "client_secret": settings.GOOGLE_CLIENT_SECRET,
+                        "refresh_token": plaintext_refresh_token,  # Bug Fix #4: Use decrypted token
                         "grant_type": "refresh_token",
                     },
                     timeout=10.0,
@@ -114,10 +126,11 @@ class AuthService:
                 
                 # Update credentials
                 credentials.access_token = token_data["access_token"]
-                credentials.token_expiry = datetime.utcnow() + timedelta(
+                # Bug Fix #1: Use timezone-aware datetime
+                credentials.token_expiry = datetime.now(timezone.utc) + timedelta(
                     seconds=token_data.get("expires_in", 3600)
                 )
-                credentials.updated_at = datetime.utcnow()
+                credentials.updated_at = datetime.now(timezone.utc)
                 
                 self.session.add(credentials)
                 await self.session.commit()
@@ -165,8 +178,9 @@ class AuthService:
             # Update existing user
             user.name = name
             user.avatar_url = avatar_url
-            user.last_login_at = datetime.utcnow()
-            user.updated_at = datetime.utcnow()
+            # Bug Fix #1: Use timezone-aware datetime
+            user.last_login_at = datetime.now(timezone.utc)
+            user.updated_at = datetime.now(timezone.utc)
         else:
             # Create new user
             user = User(
@@ -175,7 +189,7 @@ class AuthService:
                 provider=provider,
                 provider_user_id=provider_user_id,
                 avatar_url=avatar_url,
-                last_login_at=datetime.utcnow(),
+                last_login_at=datetime.now(timezone.utc),
             )
             self.session.add(user)
         
