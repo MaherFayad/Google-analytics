@@ -53,6 +53,10 @@ class Settings(BaseSettings):
     
     # API Configuration
     API_V1_PREFIX: str = Field(default="/api/v1")
+    API_SECRET: str = Field(
+        default="development-secret",
+        description="Shared secret for NextAuth → FastAPI communication"
+    )
     
     @field_validator("NEXTAUTH_SECRET")
     @classmethod

@@ -160,10 +160,13 @@ async def liveness_check():
     return {"status": "alive"}
 
 
-# TODO: Import and include routers
-# from .api.v1 import analytics, auth, reports
+# Include API routers
+from .api.v1 import auth
+app.include_router(auth.router, prefix="/api/v1", tags=["authentication"])
+
+# TODO: Import additional routers
+# from .api.v1 import analytics, reports
 # app.include_router(analytics.router, prefix="/api/v1", tags=["analytics"])
-# app.include_router(auth.router, prefix="/api/v1", tags=["auth"])
 # app.include_router(reports.router, prefix="/api/v1", tags=["reports"])
 
 
