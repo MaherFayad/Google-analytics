@@ -247,3 +247,4 @@ class TestJWTSpoofingAttackScenarios:
         with pytest.raises(JWTValidationError):
             validator.verify_token(none_token)
 
+

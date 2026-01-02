@@ -264,3 +264,4 @@ class DataFetcherAgent(BaseAgent[DataFetchResult]):
         except Exception as e:
             logger.warning(f"Cache write error: {e}")
 
+

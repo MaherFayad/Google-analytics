@@ -526,3 +526,4 @@ class TestRBACPermissions:
         assert viewer.can_write() is False
         assert viewer.can_read() is True  # ✅ Can read only
 
+

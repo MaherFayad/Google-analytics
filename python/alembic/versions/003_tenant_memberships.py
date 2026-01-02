@@ -178,3 +178,4 @@ def downgrade() -> None:
     op.drop_table('tenant_memberships')
     op.drop_table('tenants')
 
+

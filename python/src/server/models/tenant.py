@@ -86,3 +86,4 @@ class TenantMembership(SQLModel, table=True):
         """Check if user has read access."""
         return self.role in ("owner", "admin", "member", "viewer")
 
+

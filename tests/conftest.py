@@ -64,3 +64,4 @@ async def db_session(db_engine) -> AsyncGenerator[AsyncSession, None]:
     async with async_session_maker() as session:
         yield session
 
+

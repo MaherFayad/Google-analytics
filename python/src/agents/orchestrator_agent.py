@@ -285,3 +285,4 @@ class OrchestratorAgent(BaseAgent[ReportResult]):
                 "message": f"Pipeline failed: {str(e)}"
             }
 
+
