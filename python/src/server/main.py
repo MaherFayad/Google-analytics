@@ -24,7 +24,7 @@ from sentry_sdk.integrations.fastapi import FastApiIntegration
 from prometheus_client import make_asgi_app
 
 from .core.config import settings
-from .core.connection_manager import get_connection_manager
+from .core.connection_manager import connection_manager
 
 # Configure logging
 logging.basicConfig(
@@ -69,10 +69,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
             logger.warning(f"Database initialization skipped: {e}")
     
     # Initialize connection manager (Task P0-20)
-    connection_manager = get_connection_manager(
-        grace_period=settings.SHUTDOWN_GRACE_PERIOD
-    )
-    logger.info(f"SSE connection manager initialized (grace period: {settings.SHUTDOWN_GRACE_PERIOD}s)")
+    grace_period = getattr(settings, 'SHUTDOWN_GRACE_PERIOD', 20)
+    connection_manager._shutdown_grace_period = grace_period
+    logger.info(f"SSE connection manager initialized (grace period: {grace_period}s)")
     
     # Setup signal handlers for graceful shutdown
     shutdown_event = asyncio.Event()
@@ -99,8 +98,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
     logger.info("Shutting down GA4 Analytics API...")
     
     # Gracefully shutdown SSE connections (Task P0-20)
-    logger.info(f"Active SSE connections: {connection_manager.active_connection_count}")
-    await connection_manager.graceful_shutdown()
+    logger.info(f"Active SSE connections: {connection_manager.active_connections}")
+    await connection_manager.initiate_shutdown()
     
     # Close database connections
     await close_db()

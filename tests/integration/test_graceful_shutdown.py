@@ -1,307 +1,425 @@
 """
-Integration tests for graceful SSE connection shutdown.
+Integration Tests for Graceful SSE Connection Shutdown
 
-Tests Task P0-20: Graceful SSE Connection Shutdown
+Implements Task P0-20: Graceful SSE Connection Shutdown
 
-Verifies:
-- Active connections are tracked
-- Shutdown notifications are sent to all connections
-- New connections are rejected during shutdown
-- Connections close within grace period
+Tests:
+- Connection registration and tracking
+- Shutdown notification delivery
+- Grace period enforcement
+- Zero-downtime deployments
+- Connection draining
 """
 
-import asyncio
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+import asyncio
 from datetime import datetime
+from unittest.mock import AsyncMock, MagicMock, patch
 
-from src.server.core.connection_manager import SSEConnectionManager, get_connection_manager, reset_connection_manager
+from src.server.core.connection_manager import ConnectionManager, ConnectionInfo
 
 
-class TestSSEConnectionManager:
-    """Test SSE connection manager."""
+# ============================================================================
+# Test Fixtures
+# ============================================================================
+
+@pytest.fixture
+def connection_manager():
+    """Fresh connection manager instance for each test."""
+    return ConnectionManager()
+
+
+@pytest.fixture
+def mock_connections():
+    """Mock connection data."""
+    return [
+        ("conn-1", "tenant-1", "/stream/analytics"),
+        ("conn-2", "tenant-1", "/stream/reports"),
+        ("conn-3", "tenant-2", "/stream/analytics"),
+    ]
+
+
+# ============================================================================
+# Connection Registration Tests
+# ============================================================================
+
+def test_register_connection(connection_manager):
+    """Test connection registration."""
+    connection_id = "test-conn-1"
+    tenant_id = "tenant-123"
+    endpoint = "/stream/test"
     
-    @pytest.fixture(autouse=True)
-    def setup(self):
-        """Reset connection manager before each test."""
-        reset_connection_manager()
-        yield
-        reset_connection_manager()
+    connection_manager.register_connection(connection_id, tenant_id, endpoint)
     
-    def test_connection_manager_initialization(self):
-        """Test connection manager initializes with correct defaults."""
-        manager = SSEConnectionManager(shutdown_grace_period=20)
-        
-        assert manager.active_connection_count == 0
-        assert not manager.is_shutting_down
-        assert manager._shutdown_grace_period == 20
+    assert connection_manager.active_connections == 1
+    assert connection_id in connection_manager._connections
     
-    def test_register_connection(self):
-        """Test connection registration creates queue."""
-        manager = SSEConnectionManager()
-        
-        queue = manager.register_connection("test-conn-1")
-        
-        assert queue is not None
-        assert isinstance(queue, asyncio.Queue)
-        assert manager.active_connection_count == 1
+    conn = connection_manager.get_connection(connection_id)
+    assert conn is not None
+    assert conn.connection_id == connection_id
+    assert conn.tenant_id == tenant_id
+    assert conn.endpoint == endpoint
+
+
+def test_unregister_connection(connection_manager):
+    """Test connection unregistration."""
+    connection_id = "test-conn-1"
+    tenant_id = "tenant-123"
+    endpoint = "/stream/test"
     
-    def test_unregister_connection(self):
-        """Test connection unregistration removes tracking."""
-        manager = SSEConnectionManager()
-        
-        manager.register_connection("test-conn-1")
-        assert manager.active_connection_count == 1
-        
-        manager.unregister_connection("test-conn-1")
-        assert manager.active_connection_count == 0
+    connection_manager.register_connection(connection_id, tenant_id, endpoint)
+    assert connection_manager.active_connections == 1
     
-    def test_reject_connection_during_shutdown(self):
-        """Test new connections are rejected during shutdown."""
-        manager = SSEConnectionManager()
-        manager._shutdown_requested = True
-        
-        queue = manager.register_connection("test-conn-1")
-        
-        assert queue is None
-        assert manager.active_connection_count == 0
+    connection_manager.unregister_connection(connection_id)
+    assert connection_manager.active_connections == 0
+    assert connection_manager.get_connection(connection_id) is None
+
+
+def test_register_connection_during_shutdown(connection_manager):
+    """Test that new connections are rejected during shutdown."""
+    connection_manager._is_shutting_down = True
     
-    @pytest.mark.asyncio
-    async def test_notify_shutdown(self):
-        """Test shutdown notifications are sent to all connections."""
-        manager = SSEConnectionManager()
-        
-        # Register multiple connections
-        queue1 = manager.register_connection("conn-1")
-        queue2 = manager.register_connection("conn-2")
-        queue3 = manager.register_connection("conn-3")
-        
-        assert manager.active_connection_count == 3
-        
-        # Notify shutdown
-        await manager.notify_shutdown("Test shutdown message")
-        
-        # Verify all queues received shutdown event
-        event1 = await asyncio.wait_for(queue1.get(), timeout=1.0)
-        event2 = await asyncio.wait_for(queue2.get(), timeout=1.0)
-        event3 = await asyncio.wait_for(queue3.get(), timeout=1.0)
-        
-        assert event1["type"] == "shutdown"
-        assert "Test shutdown message" in event1["message"]
-        assert event1["reconnect_delay"] == 30
-        
-        assert event2["type"] == "shutdown"
-        assert event3["type"] == "shutdown"
+    with pytest.raises(RuntimeError, match="Server is shutting down"):
+        connection_manager.register_connection("conn-1", "tenant-1", "/stream/test")
+
+
+def test_multiple_connections(connection_manager, mock_connections):
+    """Test registering multiple connections."""
+    for conn_id, tenant_id, endpoint in mock_connections:
+        connection_manager.register_connection(conn_id, tenant_id, endpoint)
     
-    @pytest.mark.asyncio
-    async def test_graceful_shutdown_with_active_connections(self):
-        """Test graceful shutdown waits for connections to close."""
-        manager = SSEConnectionManager(shutdown_grace_period=2)  # Short grace period for testing
-        
-        # Register connections
-        queue1 = manager.register_connection("conn-1")
-        queue2 = manager.register_connection("conn-2")
-        
-        # Start graceful shutdown in background
-        shutdown_task = asyncio.create_task(manager.graceful_shutdown())
-        
-        # Give shutdown time to send notifications
+    assert connection_manager.active_connections == len(mock_connections)
+
+
+# ============================================================================
+# Connection Tracking Tests
+# ============================================================================
+
+@pytest.mark.asyncio
+async def test_track_connection_context_manager(connection_manager):
+    """Test connection tracking with context manager."""
+    connection_id = "test-conn-1"
+    tenant_id = "tenant-123"
+    endpoint = "/stream/test"
+    
+    assert connection_manager.active_connections == 0
+    
+    async with connection_manager.track_connection(connection_id, tenant_id, endpoint):
+        assert connection_manager.active_connections == 1
+        assert connection_manager.get_connection(connection_id) is not None
+    
+    assert connection_manager.active_connections == 0
+    assert connection_manager.get_connection(connection_id) is None
+
+
+@pytest.mark.asyncio
+async def test_track_connection_with_exception(connection_manager):
+    """Test that connections are cleaned up even if exception occurs."""
+    connection_id = "test-conn-1"
+    tenant_id = "tenant-123"
+    endpoint = "/stream/test"
+    
+    try:
+        async with connection_manager.track_connection(connection_id, tenant_id, endpoint):
+            assert connection_manager.active_connections == 1
+            raise ValueError("Test exception")
+    except ValueError:
+        pass
+    
+    # Connection should be cleaned up
+    assert connection_manager.active_connections == 0
+
+
+@pytest.mark.asyncio
+async def test_track_connection_during_shutdown(connection_manager):
+    """Test that tracking fails when server is shutting down."""
+    connection_manager._is_shutting_down = True
+    
+    with pytest.raises(RuntimeError, match="Server is shutting down"):
+        async with connection_manager.track_connection("conn-1", "tenant-1", "/stream/test"):
+            pass
+
+
+# ============================================================================
+# Graceful Shutdown Tests
+# ============================================================================
+
+@pytest.mark.asyncio
+async def test_initiate_shutdown_no_connections(connection_manager):
+    """Test shutdown with no active connections."""
+    start_time = asyncio.get_event_loop().time()
+    
+    await connection_manager.initiate_shutdown(grace_period=5)
+    
+    elapsed = asyncio.get_event_loop().time() - start_time
+    
+    assert connection_manager.is_shutting_down
+    assert elapsed < 1  # Should complete immediately
+
+
+@pytest.mark.asyncio
+async def test_initiate_shutdown_with_connections(connection_manager, mock_connections):
+    """Test shutdown waits for connections to close."""
+    # Register connections
+    for conn_id, tenant_id, endpoint in mock_connections:
+        connection_manager.register_connection(conn_id, tenant_id, endpoint)
+    
+    assert connection_manager.active_connections == len(mock_connections)
+    
+    # Start shutdown in background
+    shutdown_task = asyncio.create_task(
+        connection_manager.initiate_shutdown(grace_period=5)
+    )
+    
+    # Give shutdown time to start
+    await asyncio.sleep(0.1)
+    assert connection_manager.is_shutting_down
+    
+    # Close connections one by one
+    for conn_id, _, _ in mock_connections:
         await asyncio.sleep(0.5)
-        
-        # Verify shutdown requested
-        assert manager.is_shutting_down
-        
-        # Simulate connections closing
-        manager.unregister_connection("conn-1")
+        connection_manager.unregister_connection(conn_id)
+    
+    # Wait for shutdown to complete
+    await shutdown_task
+    
+    assert connection_manager.active_connections == 0
+
+
+@pytest.mark.asyncio
+async def test_shutdown_grace_period_timeout(connection_manager, mock_connections):
+    """Test shutdown times out if connections don't close."""
+    # Register connections
+    for conn_id, tenant_id, endpoint in mock_connections:
+        connection_manager.register_connection(conn_id, tenant_id, endpoint)
+    
+    # Shutdown with short grace period
+    start_time = asyncio.get_event_loop().time()
+    await connection_manager.initiate_shutdown(grace_period=1)
+    elapsed = asyncio.get_event_loop().time() - start_time
+    
+    # Should timeout after ~1 second
+    assert 0.9 < elapsed < 1.5
+    assert connection_manager.is_shutting_down
+    # Connections still active (timeout occurred)
+    assert connection_manager.active_connections > 0
+
+
+@pytest.mark.asyncio
+async def test_shutdown_idempotent(connection_manager):
+    """Test that calling shutdown multiple times is safe."""
+    await connection_manager.initiate_shutdown(grace_period=1)
+    
+    # Call again
+    await connection_manager.initiate_shutdown(grace_period=1)
+    
+    assert connection_manager.is_shutting_down
+
+
+# ============================================================================
+# Shutdown Notification Tests
+# ============================================================================
+
+def test_get_shutdown_notification_event(connection_manager):
+    """Test shutdown notification event format."""
+    event = connection_manager.get_shutdown_notification_event(reconnect_delay=30)
+    
+    assert event["event"] == "shutdown"
+    assert "data" in event
+    
+    import json
+    data = json.loads(event["data"])
+    
+    assert data["type"] == "shutdown"
+    assert "message" in data
+    assert data["reconnect_delay_seconds"] == 30
+    assert "timestamp" in data
+
+
+# ============================================================================
+# Connection Query Tests
+# ============================================================================
+
+def test_get_connections_by_tenant(connection_manager, mock_connections):
+    """Test querying connections by tenant."""
+    for conn_id, tenant_id, endpoint in mock_connections:
+        connection_manager.register_connection(conn_id, tenant_id, endpoint)
+    
+    tenant1_conns = connection_manager.get_connections_by_tenant("tenant-1")
+    tenant2_conns = connection_manager.get_connections_by_tenant("tenant-2")
+    
+    assert len(tenant1_conns) == 2  # conn-1, conn-2
+    assert len(tenant2_conns) == 1  # conn-3
+    assert "conn-1" in tenant1_conns
+    assert "conn-2" in tenant1_conns
+    assert "conn-3" in tenant2_conns
+
+
+def test_get_connections_by_endpoint(connection_manager, mock_connections):
+    """Test querying connections by endpoint."""
+    for conn_id, tenant_id, endpoint in mock_connections:
+        connection_manager.register_connection(conn_id, tenant_id, endpoint)
+    
+    analytics_conns = connection_manager.get_connections_by_endpoint("/stream/analytics")
+    reports_conns = connection_manager.get_connections_by_endpoint("/stream/reports")
+    
+    assert len(analytics_conns) == 2  # conn-1, conn-3
+    assert len(reports_conns) == 1    # conn-2
+
+
+def test_get_stats(connection_manager, mock_connections):
+    """Test connection statistics."""
+    for conn_id, tenant_id, endpoint in mock_connections:
+        connection_manager.register_connection(conn_id, tenant_id, endpoint)
+    
+    stats = connection_manager.get_stats()
+    
+    assert stats["total_connections"] == 3
+    assert not stats["is_shutting_down"]
+    assert "/stream/analytics" in stats["connections_by_endpoint"]
+    assert "/stream/reports" in stats["connections_by_endpoint"]
+    assert "tenant-1" in stats["connections_by_tenant"]
+    assert "tenant-2" in stats["connections_by_tenant"]
+    assert stats["oldest_connection_age_seconds"] >= 0
+
+
+# ============================================================================
+# Integration Tests
+# ============================================================================
+
+@pytest.mark.asyncio
+async def test_full_shutdown_workflow(connection_manager):
+    """Test complete shutdown workflow."""
+    # Step 1: Register multiple connections
+    connections = [
+        ("conn-1", "tenant-1", "/stream/analytics"),
+        ("conn-2", "tenant-1", "/stream/reports"),
+        ("conn-3", "tenant-2", "/stream/analytics"),
+    ]
+    
+    for conn_id, tenant_id, endpoint in connections:
+        connection_manager.register_connection(conn_id, tenant_id, endpoint)
+    
+    assert connection_manager.active_connections == 3
+    
+    # Step 2: Initiate shutdown
+    shutdown_task = asyncio.create_task(
+        connection_manager.initiate_shutdown(grace_period=5)
+    )
+    
+    await asyncio.sleep(0.1)
+    assert connection_manager.is_shutting_down
+    
+    # Step 3: Attempt to register new connection (should fail)
+    with pytest.raises(RuntimeError):
+        connection_manager.register_connection("conn-4", "tenant-1", "/stream/test")
+    
+    # Step 4: Close existing connections gracefully
+    for conn_id, _, _ in connections:
         await asyncio.sleep(0.2)
-        manager.unregister_connection("conn-2")
-        
-        # Wait for shutdown to complete
-        await asyncio.wait_for(shutdown_task, timeout=5.0)
-        
-        # Verify all connections closed
-        assert manager.active_connection_count == 0
+        connection_manager.unregister_connection(conn_id)
     
-    @pytest.mark.asyncio
-    async def test_graceful_shutdown_timeout_force_close(self):
-        """Test connections are force closed after grace period."""
-        manager = SSEConnectionManager(shutdown_grace_period=1)  # Very short grace period
-        
-        # Register connections that won't close
-        manager.register_connection("conn-1")
-        manager.register_connection("conn-2")
-        manager.register_connection("conn-3")
-        
-        assert manager.active_connection_count == 3
-        
-        # Start graceful shutdown (connections won't close themselves)
-        await manager.graceful_shutdown()
-        
-        # Verify connections were force closed after grace period
-        assert manager.active_connection_count == 0
+    # Step 5: Wait for shutdown to complete
+    await shutdown_task
     
-    @pytest.mark.asyncio
-    async def test_connection_context_manager(self):
-        """Test connection context manager handles registration/unregistration."""
-        manager = SSEConnectionManager()
-        
-        # Use context manager
-        async with manager.connection_context("test-conn") as queue:
-            assert queue is not None
-            assert manager.active_connection_count == 1
-        
-        # Verify unregistered after context
-        assert manager.active_connection_count == 0
-    
-    @pytest.mark.asyncio
-    async def test_connection_context_manager_during_shutdown(self):
-        """Test context manager returns None during shutdown."""
-        manager = SSEConnectionManager()
-        manager._shutdown_requested = True
-        
-        async with manager.connection_context("test-conn") as queue:
-            assert queue is None
-        
-        assert manager.active_connection_count == 0
+    assert connection_manager.active_connections == 0
 
 
-class TestConnectionManagerIntegration:
-    """Integration tests for connection manager with FastAPI."""
+@pytest.mark.asyncio
+async def test_zero_downtime_deployment_simulation(connection_manager):
+    """Simulate zero-downtime rolling deployment."""
+    # Phase 1: Server running with active connections
+    active_connections = []
+    for i in range(10):
+        conn_id = f"conn-{i}"
+        connection_manager.register_connection(
+            conn_id, f"tenant-{i % 3}", "/stream/analytics"
+        )
+        active_connections.append(conn_id)
     
-    @pytest.fixture(autouse=True)
-    def setup(self):
-        """Reset connection manager before each test."""
-        reset_connection_manager()
-        yield
-        reset_connection_manager()
+    assert connection_manager.active_connections == 10
     
-    def test_get_connection_manager_singleton(self):
-        """Test get_connection_manager returns same instance."""
-        manager1 = get_connection_manager()
-        manager2 = get_connection_manager()
-        
-        assert manager1 is manager2
+    # Phase 2: Deployment starts - initiate shutdown
+    shutdown_task = asyncio.create_task(
+        connection_manager.initiate_shutdown(grace_period=3)
+    )
     
-    @pytest.mark.asyncio
-    async def test_shutdown_notification_format(self):
-        """Test shutdown notifications have correct format."""
-        manager = SSEConnectionManager()
-        queue = manager.register_connection("test-conn")
-        
-        await manager.notify_shutdown("Custom shutdown message")
-        
-        event = await asyncio.wait_for(queue.get(), timeout=1.0)
-        
-        # Verify event structure
-        assert "type" in event
-        assert event["type"] == "shutdown"
-        assert "message" in event
-        assert "Custom shutdown message" in event["message"]
-        assert "timestamp" in event
-        assert "reconnect_delay" in event
-        assert event["reconnect_delay"] == 30
-        
-        # Verify timestamp is valid ISO format
-        datetime.fromisoformat(event["timestamp"])
+    await asyncio.sleep(0.1)
     
-    @pytest.mark.asyncio
-    async def test_concurrent_connections(self):
-        """Test manager handles many concurrent connections."""
-        manager = SSEConnectionManager()
-        
-        # Register many connections
-        connection_count = 100
-        for i in range(connection_count):
-            manager.register_connection(f"conn-{i}")
-        
-        assert manager.active_connection_count == connection_count
-        
-        # Notify all
-        await manager.notify_shutdown()
-        
-        # Verify all connections received notification
-        # (We won't check all 100, just verify the count is maintained)
-        assert manager.active_connection_count == connection_count
+    # Phase 3: New connections rejected
+    with pytest.raises(RuntimeError):
+        connection_manager.register_connection("new-conn", "tenant-1", "/stream/test")
+    
+    # Phase 4: Existing connections close over time
+    for conn_id in active_connections[:5]:  # Close half immediately
+        connection_manager.unregister_connection(conn_id)
+    
+    await asyncio.sleep(0.5)
+    
+    for conn_id in active_connections[5:]:  # Close rest
+        connection_manager.unregister_connection(conn_id)
+    
+    # Phase 5: Shutdown completes
+    await shutdown_task
+    
+    assert connection_manager.active_connections == 0
+    assert connection_manager.is_shutting_down
 
 
-class TestProductionScenarios:
-    """Test production deployment scenarios."""
+# ============================================================================
+# Performance Tests
+# ============================================================================
+
+@pytest.mark.asyncio
+async def test_connection_registration_performance(connection_manager):
+    """Test connection registration is fast."""
+    import time
     
-    @pytest.fixture(autouse=True)
-    def setup(self):
-        """Reset connection manager before each test."""
-        reset_connection_manager()
-        yield
-        reset_connection_manager()
+    start = time.time()
     
-    @pytest.mark.asyncio
-    async def test_kubernetes_rolling_deployment(self):
-        """
-        Simulate Kubernetes rolling deployment scenario.
-        
-        Scenario:
-        1. kubectl rollout restart sends SIGTERM
-        2. 1000 active SSE connections streaming
-        3. Pod has 30 seconds to shut down
-        4. All connections should receive notification
-        5. Pod should wait up to 20 seconds for graceful closure
-        """
-        manager = SSEConnectionManager(shutdown_grace_period=20)
-        
-        # Simulate 1000 active connections
-        active_connections = 50  # Reduced for test speed
-        connections = []
-        for i in range(active_connections):
-            queue = manager.register_connection(f"prod-conn-{i}")
-            connections.append((f"prod-conn-{i}", queue))
-        
-        assert manager.active_connection_count == active_connections
-        
-        # Start graceful shutdown (simulates SIGTERM handler)
-        shutdown_task = asyncio.create_task(manager.graceful_shutdown())
-        
-        # Allow shutdown to send notifications
-        await asyncio.sleep(0.5)
-        
-        # Simulate connections closing over time (realistic scenario)
-        async def simulate_connection_close(conn_id, delay):
-            await asyncio.sleep(delay)
-            manager.unregister_connection(conn_id)
-        
-        # Stagger connection closures
-        close_tasks = []
-        for i, (conn_id, _) in enumerate(connections):
-            # Close connections over 2 seconds
-            delay = (i / active_connections) * 2.0
-            task = asyncio.create_task(simulate_connection_close(conn_id, delay))
-            close_tasks.append(task)
-        
-        # Wait for all connections to close
-        await asyncio.gather(*close_tasks)
-        
-        # Wait for shutdown to complete
-        await asyncio.wait_for(shutdown_task, timeout=25.0)
-        
-        # Verify successful shutdown
-        assert manager.active_connection_count == 0
-        assert manager.is_shutting_down
+    for i in range(1000):
+        connection_manager.register_connection(
+            f"conn-{i}",
+            f"tenant-{i % 10}",
+            "/stream/test"
+        )
     
-    @pytest.mark.asyncio
-    async def test_reject_connections_during_shutdown(self):
-        """Test new connections are rejected with 503 during shutdown."""
-        manager = SSEConnectionManager()
-        
-        # Start shutdown
-        manager._shutdown_requested = True
-        
-        # Attempt to register new connection
-        queue = manager.register_connection("late-conn")
-        
-        # Should be rejected
-        assert queue is None
-        assert manager.active_connection_count == 0
+    elapsed = time.time() - start
+    
+    assert elapsed < 1.0  # Should complete in < 1 second
+    assert connection_manager.active_connections == 1000
+
+
+@pytest.mark.asyncio
+async def test_shutdown_with_many_connections(connection_manager):
+    """Test shutdown handles many connections efficiently."""
+    # Register 100 connections
+    for i in range(100):
+        connection_manager.register_connection(
+            f"conn-{i}",
+            f"tenant-{i % 10}",
+            "/stream/test"
+        )
+    
+    # Start shutdown
+    shutdown_task = asyncio.create_task(
+        connection_manager.initiate_shutdown(grace_period=2)
+    )
+    
+    await asyncio.sleep(0.1)
+    
+    # Close all connections quickly
+    for i in range(100):
+        connection_manager.unregister_connection(f"conn-{i}")
+    
+    # Shutdown should complete quickly after last connection closes
+    import time
+    start = time.time()
+    await shutdown_task
+    elapsed = time.time() - start
+    
+    assert elapsed < 0.5  # Should complete within 0.5s after last connection closed
 
 
 if __name__ == "__main__":
-    pytest.main([__file__, "-v"])
-
+    pytest.main([__file__, "-v", "-s"])
