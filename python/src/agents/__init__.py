@@ -11,6 +11,7 @@ from .embedding_agent import EmbeddingAgent
 from .rag_agent import RagAgent
 from .reporting_agent import ReportingAgent
 from .orchestrator_agent import OrchestratorAgent
+from .orchestrator_with_handoff import EnhancedOrchestratorAgent
 from .schemas import (
     DataFetchResult,
     EmbeddingResult,
@@ -27,6 +28,7 @@ __all__ = [
     "RagAgent",
     "ReportingAgent",
     "OrchestratorAgent",
+    "EnhancedOrchestratorAgent",
     "DataFetchResult",
     "EmbeddingResult",
     "RetrievalResult",
