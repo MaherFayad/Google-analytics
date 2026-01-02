@@ -12,5 +12,9 @@ export {
   ChartGrid 
 } from './TypeSafeChartRenderer';
 
+// Task 6.2: Safe Chart Renderer with Error Boundary
+export { SafeChartRenderer } from './SafeChartRenderer';
+export type { SafeChartRendererProps } from './SafeChartRenderer';
+
 export default ChartRenderer;
 
