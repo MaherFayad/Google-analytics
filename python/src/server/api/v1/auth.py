@@ -247,3 +247,92 @@ async def auth_status(
         "is_expired": is_expired,
     }
 
+
+class GA4PropertyStatus(BaseModel):
+    """GA4 property connection status."""
+    
+    property_id: str
+    property_name: Optional[str]
+    last_sync: Optional[str]
+    is_active: bool
+    token_expires_at: str
+
+
+class GA4StatusResponse(BaseModel):
+    """Response model for GA4 connection status."""
+    
+    authenticated: bool
+    properties: list[GA4PropertyStatus]
+    total_properties: int
+
+
+@router.get(
+    "/ga4/status",
+    response_model=GA4StatusResponse,
+    summary="Get GA4 connection status",
+    description="""
+    Task 10.3: OAuth Connection Status UI
+    
+    Returns all connected GA4 properties for a user, including:
+    - Property ID and name
+    - Last sync timestamp
+    - Token expiry status
+    - Active/inactive state
+    """
+)
+async def ga4_status(
+    user_id: str,
+    session: AsyncSession = Depends(get_session),
+) -> GA4StatusResponse:
+    """
+    Get GA4 connection status for a user.
+    
+    Implements Task 10.3: Display list of connected GA4 properties.
+    
+    Args:
+        user_id: User UUID
+        session: Database session
+        
+    Returns:
+        GA4StatusResponse with all connected properties
+    """
+    try:
+        user_uuid = UUID(user_id)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid user_id format: {user_id}"
+        )
+    
+    # Fetch all GA4 credentials for this user
+    stmt = select(GA4Credentials).where(GA4Credentials.user_id == user_uuid)
+    result = await session.execute(stmt)
+    credentials_list = result.scalars().all()
+    
+    if not credentials_list:
+        return GA4StatusResponse(
+            authenticated=False,
+            properties=[],
+            total_properties=0
+        )
+    
+    # Build property status list
+    now = datetime.now(timezone.utc)
+    properties = []
+    
+    for cred in credentials_list:
+        is_active = cred.token_expiry > now
+        
+        properties.append(GA4PropertyStatus(
+            property_id=cred.property_id,
+            property_name=cred.property_name,
+            last_sync=cred.last_used_at.isoformat() if cred.last_used_at else None,
+            is_active=is_active,
+            token_expires_at=cred.token_expiry.isoformat(),
+        ))
+    
+    return GA4StatusResponse(
+        authenticated=True,
+        properties=properties,
+        total_properties=len(properties)
+    )

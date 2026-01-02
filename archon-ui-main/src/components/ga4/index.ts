@@ -22,3 +22,10 @@ export type { ComparisonChartProps, ComparisonDataPoint } from './ComparisonChar
 export { ChatInterface } from './ChatInterface';
 export type { ChatInterfaceProps } from './ChatInterface';
 
+// Task 10.3: OAuth Connection Status UI
+export { GA4ConnectionCard } from './GA4ConnectionCard';
+
+// Task P0-37: Chart Accessibility (WCAG 2.1 AA Compliance)
+export { AccessibleChartRenderer } from './AccessibleChartRenderer';
+export type { AccessibleChartRendererProps } from './AccessibleChartRenderer';
+

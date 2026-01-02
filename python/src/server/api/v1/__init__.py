@@ -13,6 +13,7 @@ from . import (
     chat,
     export,
     sharing,
+    comparison,
 )
 from .admin import audit_trail, tenant_management, transformation_diff
 
@@ -33,6 +34,13 @@ router.include_router(chat.router, tags=["chat"])
 # Export & Sharing (Task P0-8)
 router.include_router(export.router, tags=["export"])
 router.include_router(sharing.router, tags=["sharing"])
+
+# Period Comparison (Task P0-15)
+router.include_router(comparison.router, tags=["comparison"])
+
+# Report Versions (Task P0-36)
+from . import report_versions
+router.include_router(report_versions.router, tags=["report-versions"])
 
 # Admin endpoints
 router.include_router(audit_trail.router, prefix="/admin", tags=["admin"])
